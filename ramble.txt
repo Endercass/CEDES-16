@@ -1,0 +1,186 @@
+so i want to do a pico-8 style thing
+im interested in asm
+im also interested in how stuff like brainfuck operates
+
+i was thinking, it would be kinda cool to have a cartridge/binary format that is executed by a vm
+the vm will be stack based not register based
+we will have a consistent size for memory of the virtual console, like lets say 64kb
+cartridge is a full memory snapshot that is represented as the initial state of the RAM. the image technically doesn't need to take the whole 64kb, and if it is smaller the remaining size is initialized to zeroes.
+I will probably use copy on write for loading the images perchance
+the console's memory is initialized with the contents of the cartridge at the start, and the rest is initialized to zeroes. 
+Operations
+    Operations may or may not take in up to one immediate value, which is either 8 or 16 bits depending on the instruction.
+    If the virtual immediate flag is set, the immediate value is sourced from the immediate value register (IM) instead of being read from the instruction stream.
+    An instruction can be one to three bytes long. The same operation does not always take the same number of bytes, as when the virtual immediate flag is set,
+    the immediate value is sourced from the IM register and not read from the instruction stream. This can be strange
+    for a beginner, but allows very compact code.
+    When VF is set, the next instruction that takes an immediate value (n.b. nullary instructions excluded) will use the value in the IM register and clear the VF flag. 
+
+Display format:
+    128x128 pixels, 255 colors (8-bit color, RRRGGGBB)
+    Display buffer is 128 * 128 = 16384 bytes (16k) at any memory location
+
+Types:
+    8-bit unsigned integers (0-255)
+    16-bit unsigned integers (0-65535)
+    8-bit signed integers (-128 to 127)
+    16-bit signed integers (-32768 to 32767)
+
+    64-bit audio voice
+        bit 0-15 = wave ptr
+        bit 16-31 = frequency
+        bit 32-47 = phase
+        bit 48-51 = volume (0-15)
+        bit 52-55 = pan (0-15, where 0 is left and 15 is right)
+        bit 56 = enabled flag, if this bit is not set the voice is not played
+        bit 57 = loop flag, if this bit is set the voice will loop back to the start of the wave when it reaches the end
+        bit 58 = pingpong flag, loop must be enabled for this to work, and if this is set the voice will play forwards then backwards when it loops, instead of just jumping back to the start of the wave
+        bit 59 = noise flag, will play determinstic noise using the wave buffer as the source of the noise pattern
+        bit 60 = reset flag, if this bit is set the voice will reset its phase to 0 when it is triggered to play
+        bit 61-63 = reserved for future use, should be set to 0
+
+Waveform
+    64 samples of 8-bit signed audio data, which can be used as a waveform for the audio voices. The waveforms are stored arbitrarily in memory, and the location of the waveforms is specified by the wave ptr.
+    Waveform buffer is 64 bytes per waveform, and there can be any number of waveforms in memory.
+Voice
+    There are 8 audio voices after the audio pointer (AP) in memory. It is safe to leave unused voices as all zeroes, as this will leave the "enabled" bit unset.
+    The voice buffer is 8 voices * 8 bytes per voice = 64 bytes total for all voices.
+Sample rate
+    22050 Hz is plenty
+Memory Map (required):
+    "Registers" (which are reserved memory locations):
+    PC = [0x00 - 0x01] = program counter, points to the next instruction to execute, initialized to wherever the code starts. a sane default would be 0x10
+    SP = [0x02 - 0x03] = start of stack, its freeform like brainfuck.
+    DP = [0x04 - 0x05] = start of display data, any data written in the section of memory after (up until the offset of the size of the pixel buffer) will be displayed on the screen when "rfd" (refresh display) is called
+    AP = [0x06 - 0x07] = start of audio data, any data written in the section of memory after (up until the offset of the size of the audio buffer) will be played as audio when "rfa" (refresh audio) is called.
+    IN = [0x08] = input register, each bit represents a different button
+        bit 0 = up
+        bit 1 = down
+        bit 2 = left
+        bit 3 = right
+        bit 4 = A
+        bit 5 = B
+        bit 6 = start
+        bit 7 = select
+    FL = [0x09] = flags register, used for conditional jumps and other operations, bits can be set or cleared by instructions
+        bit 0 = reserved
+        bit 1 = carry flag (CF), set if an operation results in a carry out of the most significant bit
+        bit 2 = reserved
+        bit 3 = overflow flag (OF), set if an operation results in an overflow
+        bit 4 = grow flag (GF), controls the growth direction of the stack, if this bit is set the stack grows upward, if it is clear the stack grows downward. This can technically be changed mid-execution, as we don't maintain internal structure for the stack.
+        bit 5 = halt flag (HF), if this bit is set the VM will halt execution. This cannot be cleared by any instruction, it can only be set, because no instruction will be executed after it is set. In debugging, it may be useful to halt via an instruction (breakpoint) and resume via a special VM function
+        bit 6 = virtual immediate flag (VF), if this bit is set, the immediate value register (IM) will be used as the source for the immediate value in the next instruction call.
+    IM = [0x0A - 0x0B] = Immediate value register, 
+Stack
+    The stack grows with the direction determined by the grow flag (GF) in the flags register. If GF is set, the stack grows upward (towards higher memory addresses), and if GF is clear, the stack grows downward (towards lower memory addresses). 
+    The stack pointer (SP)'s initial value is determined by the cartridge, and it is up to the program code to not over/underflow the stack. Wrapping arithmetic is used for the stack pointer, so if stack pointer manages to grow beyond the bounds of memory strange things will happen
+    The stack is an untyped tape with no bounds or enforced structure. It is up to the program code to use it in a sensible way. 
+    Element sizes are not fixed on the stack.
+Operations
+    at each step of execution, the VM reads the opcode at the memory location pointed to by the program counter (PC). The PC is byte-addressed, and the opcode is always 8 bits. Depending on the operation, a variable number of bytes are read as operands following the opcode. After the instruction is executed, the PC is incremented by the total number of bytes read (1 byte for the opcode plus any additional bytes for operands) to point to the next instruction.
+    Alignment of stack and memory accesses is not enforced, so it is possible to read/write 16-bit values from/to odd memory addresses.
+
+    All operations that are unassigned are to be treated as NOP. 0xA0 (control flow) is the canonical NOP, and is the only guaranteed NOP for future compatibility aside from special 0xA0.
+    0x00 is reserved as a fail-safe NOP in production, but in debugging it can be used for debugging.
+    
+    Debug
+    0x00    DBG     none    TEMPORARY: Print registers to console
+
+    Stack
+    0x11    PUSH8   imm8    Push immediate byte
+    0x21    PUSH16  imm16   Push immediate word (LE)
+    0x12    PEEK8   none    Copy the top byte on the stack into the IM register, without popping it. Set VF.
+    0x22    PEEK16  none    Copy the top word on the stack into the IM register, without popping it. Set VF.
+    0x13    POP8    none    Pop byte from stack and move it into the IM register. Set VF.
+    0x23    POP16   none    Pop word from stack and move it into the IM register. Set VF.
+    0x14    DROP8   none    Pop byte from stack and discard
+    0x24    DROP16  none    Pop word from stack and discard
+    0x15    DUP8    none    Duplicate the top byte on the stack
+    0x25    DUP16   none    Duplicate the top word on the stack
+    0x16    SWAP8   none    Swap the top two bytes on the stack
+    0x26    SWAP16  none    Swap the top two words on the stack
+    0x17    OVER8   none    Copy the second byte on the stack and push it on top of the stack
+    0x27    OVER16  none    Copy the second word on the stack and push it on top of the stack
+    0x18    ROT8    none    Rotate the top three bytes on the stack, moving the third byte to the top. This is useful for certain arithmetic operations that require three operands.
+    0x28    ROT16   none    Rotate the top three words on the stack, moving the third word to the top. This is useful for certain arithmetic operations that require three operands.
+    0x29    PUSHSP  none    Push the current value of the stack pointer (SP) onto the stack
+    0x2A    POPSP   none    Pop a word from the stack and set the stack pointer (SP) to that value
+
+    Memory Access
+    0x31    LOAD8   imm16   Read byte from memory at immediate address (LE) and push it onto the stack
+    0x41    LOAD16  imm16   Read word from memory at immediate address (LE) and push it onto the stack
+    0x32    VLOAD8  imm16   Pop word n from stack, read n bytes from memory starting at immediate address (LE) and push them onto the stack
+    0x42    VLOAD16 imm16   Pop word n from stack, read n words from memory starting at immediate address (LE) and push them onto the stack
+    0x33    STORE8  imm16   Pop byte value from stack, write it to memory at immediate address (LE)
+    0x43    STORE16 imm16   Pop word value from stack, write it to memory at immediate address (LE)
+    0x34    VSTORE8 imm16   Pop word n and n byte values from stack, write the bytes to memory starting at immediate address (LE)
+    0x44    VSTORE16 imm16  Pop word n and n word values from stack, write the words to memory starting at immediate address (LE)
+        
+    Arithmetic
+    0x51    ADD8    none    Pop two bytes from stack, add them, and push the result (modulo 256) back on the stack. Set flags.
+    0x61    ADD16   none    Pop two words from stack, add them, and push the result (modulo 65536) back on the stack. Set flags.
+    0x52    SUB8    none    Pop two bytes from stack, subtract the top byte from the second byte, and push the result (modulo 256) back on the stack. Set flags.
+    0x62    SUB16   none    Pop two words from stack, subtract the top word from the second word, and push the result (modulo 65536) back on the stack. Set flags.
+    0x53    MUL8    none    Pop two bytes from stack, multiply them, and push the result (modulo 256) back on the stack. Set flags.
+    0x63    MUL16   none    Pop two words from stack, multiply them, and push the result (modulo 65536) back on the stack. Set flags.
+    0x54    DIV8    none    Pop two bytes from stack, divide the second byte by the top byte, and push the result back on the stack. If the top byte is zero, push zero. Set flags. (CF on division by zero)
+    0x64    DIV16   none    Pop two words from stack, divide the second word by the top word, and push the result back on the stack. If the top word is zero, push zero. Set flags. (CF on division by zero)
+    0x55    MOD8    none    Pop two bytes from stack, divide the second byte by the top byte, and push the remainder back on the stack. If the top byte is zero, push zero. Set flags.
+    0x65    MOD16   none    Pop two words from stack, divide the second word by the top word, and push the remainder back on the stack. If the top word is zero, push zero. Set flags.
+    0x56    CMP8    none    Pop two bytes from stack, compare them, and push comparison as byte (0 if equal, 1 if second byte is greater, -1 (255) if first byte is greater) back on the stack. Set flags.
+    0x66    CMP16   none    Pop two words from stack, compare them, and push comparison as byte (0 if equal, 1 if second word is greater, -1 (255) if first word is greater) back on the stack. Set flags.
+
+    Bitwise
+    0x71    AND8    none    Pop two bytes from stack, perform bitwise AND, and push the result back on the stack. Set flags.
+    0x81    AND16   none    Pop two words from stack, perform bitwise AND, and push the result back on the stack. Set flags.
+    0x72    OR8     none    Pop two bytes from stack, perform bitwise OR, and push the result back on the stack. Set flags.
+    0x82    OR16    none    Pop two words from stack, perform bitwise OR, and push the result back on the stack. Set flags.
+    0x73    XOR8    none    Pop two bytes from stack, perform bitwise XOR, and push the result back on the stack. Set flags.
+    0x83    XOR16   none    Pop two words from stack, perform bitwise XOR, and push the result back on the stack. Set flags.
+    0x74    NOT8    none    Pop one byte from stack, perform bitwise NOT, and push the result back on the stack. Set flags.
+    0x84    NOT16   none    Pop one word from stack, perform bitwise NOT, and push the result back on the stack. Set flags.
+    0x75    SHL8    none    Pop two bytes from stack, shift the second byte left by the number of bits specified by the top byte, and push the result back on the stack. Set flags.
+    0x85    SHL16   none    Pop two words from stack, shift the second word left by the number of bits specified by the top word, and push the result back on the stack. Set flags.
+    0x76    SHR8    none    Pop two bytes from stack, shift the second byte right by the number of bits specified by the top byte, and push the result back on the stack. Set flags.
+    0x86    SHR16   none    Pop two words from stack, shift the second word right by the number of bits specified by the top word, and push the result back on the stack. Set flags.
+    0x77    ROL8    none    Pop two bytes from stack, rotate the second byte left by the number of bits specified by the top byte, and push the result back on the stack. Set flags.
+    0x87    ROL16   none    Pop two words from stack, rotate the second word left by the number of bits specified by the top word, and push the result back on the stack. Set flags.
+    0x78    ROR8    none    Pop two bytes from stack, rotate the second byte right by the number of bits specified bythe top byte, and pushthe result back onthe stack. Set flags.
+    0x88    ROR16   none    Pop two words from stack, rotatethe second word right bythe number of bits specifiedbythe top word, and pushthe result back onthe stack. Set flags.
+        
+    System
+    0x90    RFD     none    Refresh display, the contents of memory from the display pointer (DP) to the end of the pixel buffer are rendered to the screen
+    0x91    RFA     none    Refresh audio, the contents of memory from the audio pointer (AP) to the end of the audio buffer are played as audio
+    0x92    INP     none    Read input, push the value of the input register (IN) onto the stack
+    0x93    HLT     none    Halt execution, set the halt flag (HF) in the flags register
+    0x94    WAIT    none    Wait for the next frame, this can be used to synchronize with the display's refresh rate.
+        
+    Control
+    0xA0    NOP     none    No operation
+    0xA1    JMP     imm16   Jump to immediate absolute address (LE). PC is set and not incremented.
+    0xA2    JR      imm16   Jump relative, add immediate value (LE) to PC and set PC to the result. This allows for jumps both forward and backward.
+    0xA3    JZ      imm16   Pop byte from stack, if it is zero jump to immediate address (LE)
+    0xA4    JNZ     imm16   Pop byte from stack, if it is not zero jump to immediate address (LE)
+    0xA5    JC      imm16   Pop byte from stack, if the carry flag is set jump to immediate address (LE)
+    0xA6    JNC     imm16   Pop byte from stack, if the carry flag is not set jump to immediate address (LE)
+    0xA7    JO      imm16   Pop byte from stack, if the overflow flag is set jump to immediate address (LE)
+    0xA8    JNO     imm16   Pop byte from stack, if the overflow flag is not set jump to immediate address (LE)
+    0xA9    JS      imm16   Pop byte from stack, if the sign flag is set jump to immediate address (LE)
+    0xAA    JNS     imm16   Pop byte from stack, if the sign flag is not set jump to immediate address (LE)
+    0xAB    CALL    imm16   Call subroutine at immediate address (LE). Push the current PC onto the stack, then set PC to the immediate address. This allows for function calls.
+    0xAC    RET     none    Return from subroutine. Pop an address from the stack and set PC to that address. This should correspond to the address pushed by a CALL instruction.
+    0xAD    PUSHPC  none    Push the current program counter (PC) onto the stack. This can be used for various control flow patterns, such as implementing loops or saving the return address for a subroutine call without using the CALL instruction.
+    0xAE    PUSHFL  none    Push the current flags register (FL) onto the stack.
+    0xAF    POPFL   none    Pop a byte from the stack and set the flags register (FL) to that value.
+
+
+Cartridge
+    the cartridge is a full ram snapshot (64kb). vital registers like the program counter and stack pointer are sourced from the cartridge, meaning the cartridge fully defines the initial state of the console.
+    When the VM starts, the first instruction will be read from the memory location pointed to by the program counter (PC). if the PC is invalid in any way then undefined behavior will occur
+    everything is little endian
+
+Running
+    ./build.sh && ./toyconsole cartridge.bin
+
+Editing
+    Use hex editor on cartridge.bin lol

@@ -1,0 +1,38 @@
+// define registers
+[0x0000]	word	PC	=	start
+[0x0002]	word	SP	=	stack
+[0x0004]	word	DP	=	display
+[0x0006]	word	AP	=	voices
+[0x0008]	byte	IN
+[0x0009]	byte	FL	=	0x10 // set bit 4 so stack grows up
+[0x000A]	word	IM
+[0x000C]	byte[4]	_rsv
+
+// Entrypoint is a series of bytes
+[auto]	byte[]	start	=	{
+	LOAD16; counter; // counter expands to two bytes / one word but appears as a single byte in the array
+	PUSH16; word 1; // same for literal values but words need to be marked
+	ADD16;
+	DUP16;
+	STORE16; counter;
+	PUSH16; 0xFF00; // for numbers too large to be ambiguous they can omit "word"
+	CMP16;
+	JNZ; start; // reference own name! loop back to start
+	// fall through to stop, but can explicitly jump if desired
+}
+
+[auto]	byte[]	stop	=	{
+	HLT;
+}
+
+// Reserve enough stack for our usecase
+[auto]	byte[8]	stack
+// Defines a memory region of 16384 bytes called "framebuffer" at an automatic location. Display a little color test pattern
+[auto]	byte[16384]	display	<	"colors.bin"
+// Audio isnt implemented yet but for future reserve space for the voices
+[auto]	byte[64]	voices
+
+
+
+
+
