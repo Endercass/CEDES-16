@@ -1,0 +1,17 @@
+[0x0000]	word	PC	=	start
+[0x0002]	word	SP	=	stack
+[0x0004]	word	DP	=	display
+[0x0006]	word	AP	=	voices
+[0x0008]	byte	IN
+[0x0009]	byte	FL	=	0x10
+[0x000A]	word	IM
+[0x000C]	byte[4]	_rsv
+
+[auto]	byte[]	start	=	{
+	JMP; start;
+}
+
+[auto]	byte[8]	stack
+[auto]	word	counter
+[auto]	byte[16384]	display	<	"colors.bin"
+[auto]	byte[64]	voices

@@ -32,8 +32,3 @@
 [auto]	byte[16384]	display	<	"colors.bin"
 // Audio isnt implemented yet but for future reserve space for the voices
 [auto]	byte[64]	voices
-
-
-
-
-

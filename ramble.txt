@@ -131,22 +131,22 @@ Operations
     0x66    CMP16   none    Pop two words from stack, compare them, and push comparison as byte (0 if equal, 1 if second word is greater, -1 (255) if first word is greater) back on the stack. Set flags.
 
     Bitwise
-    0x71    AND8    none    Pop two bytes from stack, perform bitwise AND, and push the result back on the stack. Set flags.
-    0x81    AND16   none    Pop two words from stack, perform bitwise AND, and push the result back on the stack. Set flags.
-    0x72    OR8     none    Pop two bytes from stack, perform bitwise OR, and push the result back on the stack. Set flags.
-    0x82    OR16    none    Pop two words from stack, perform bitwise OR, and push the result back on the stack. Set flags.
-    0x73    XOR8    none    Pop two bytes from stack, perform bitwise XOR, and push the result back on the stack. Set flags.
-    0x83    XOR16   none    Pop two words from stack, perform bitwise XOR, and push the result back on the stack. Set flags.
-    0x74    NOT8    none    Pop one byte from stack, perform bitwise NOT, and push the result back on the stack. Set flags.
-    0x84    NOT16   none    Pop one word from stack, perform bitwise NOT, and push the result back on the stack. Set flags.
-    0x75    SHL8    none    Pop two bytes from stack, shift the second byte left by the number of bits specified by the top byte, and push the result back on the stack. Set flags.
-    0x85    SHL16   none    Pop two words from stack, shift the second word left by the number of bits specified by the top word, and push the result back on the stack. Set flags.
-    0x76    SHR8    none    Pop two bytes from stack, shift the second byte right by the number of bits specified by the top byte, and push the result back on the stack. Set flags.
-    0x86    SHR16   none    Pop two words from stack, shift the second word right by the number of bits specified by the top word, and push the result back on the stack. Set flags.
-    0x77    ROL8    none    Pop two bytes from stack, rotate the second byte left by the number of bits specified by the top byte, and push the result back on the stack. Set flags.
-    0x87    ROL16   none    Pop two words from stack, rotate the second word left by the number of bits specified by the top word, and push the result back on the stack. Set flags.
-    0x78    ROR8    none    Pop two bytes from stack, rotate the second byte right by the number of bits specified bythe top byte, and pushthe result back onthe stack. Set flags.
-    0x88    ROR16   none    Pop two words from stack, rotatethe second word right bythe number of bits specifiedbythe top word, and pushthe result back onthe stack. Set flags.
+    0x71    AND8    none    Pop two bytes from stack, perform bitwise AND, push result. Set flags.
+    0x81    AND16   none    Pop two words from stack, perform bitwise AND, push result. Set flags.
+    0x72    OR8     none    Pop two bytes from stack, perform bitwise OR, push result. Set flags.
+    0x82    OR16    none    Pop two words from stack, perform bitwise OR, push result. Set flags.
+    0x73    XOR8    none    Pop two bytes from stack, perform bitwise XOR, push result. Set flags.
+    0x83    XOR16   none    Pop two words from stack, perform bitwise XOR, push result. Set flags.
+    0x74    NOT8    none    Pop one byte from stack, perform bitwise NOT, push result. Set flags.
+    0x84    NOT16   none    Pop one word from stack, perform bitwise NOT, push result. Set flags.
+    0x75    SHL8    none    Pop one byte (shift count), pop one byte (value), shift value left by count, push result. Set flags.
+    0x85    SHL16   none    Pop one byte (shift count), pop one word (value), shift value left by count, push result. Set flags.
+    0x76    SHR8    none    Pop one byte (shift count), pop one byte (value), shift value right by count, push result. Set flags.
+    0x86    SHR16   none    Pop one byte (shift count), pop one word (value), shift value right by count, push result. Set flags.
+    0x77    ROL8    none    Pop one byte (shift count), pop one byte (value), rotate value left by count, push result. Set flags.
+    0x87    ROL16   none    Pop one byte (shift count), pop one word (value), rotate value left by count, push result. Set flags.
+    0x78    ROR8    none    Pop one byte (shift count), pop one byte (value), rotate value right by count, push result. Set flags.
+    0x88    ROR16   none    Pop one byte (shift count), pop one word (value), rotate value right by count, push result. Set flags.
         
     System
     0x90    RFD     none    Refresh display, the contents of memory from the display pointer (DP) to the end of the pixel buffer are rendered to the screen

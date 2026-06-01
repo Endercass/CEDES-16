@@ -162,6 +162,7 @@ struct DecodedInstruction fetch(union Memory *memory) {
     return inst;
 }
 
+static int tmp_dbg_initial_sp = 0;
 
 static inline uint8_t rgb332(uint8_t r, uint8_t g, uint8_t b) {
     return (r & 0xE0) | ((g >> 3) & 0x1C) | ((b >> 6) & 0x03);
@@ -199,20 +200,136 @@ void refresh_display(union Memory *memory, struct GfxHandle *gfx) {
     }
 }
 
-static inline uint16_t sp_add(union Memory *memory, int16_t n) {
-    bool gf = memory->registers.fl & FLAG_GF;
-    if (gf) {
-        return (memory->registers.sp + n) % MEM_SIZE;
+static inline void internal_writeprevious8(union Memory *memory, int offset, uint8_t value) {
+    uint16_t sp = memory->registers.sp;
+    if (memory->registers.fl & FLAG_GF) {
+        // GF=1: item N at sp-N
+        memory->bytes[(sp - offset + MEM_SIZE) % MEM_SIZE] = value;
     } else {
-        return (memory->registers.sp - n + MEM_SIZE) % MEM_SIZE;
+        // GF=0: item N at sp+(N-1)
+        memory->bytes[(sp + offset - 1) % MEM_SIZE] = value;
     }
 }
-static inline uint16_t sp_peek(union Memory *memory, uint16_t offset) {
-    bool gf = memory->registers.fl & FLAG_GF;
-    if (gf) {
-        return (memory->registers.sp + MEM_SIZE - offset) % MEM_SIZE;
+ 
+static inline void internal_writeprevious16(union Memory *memory, int offset, uint16_t value) {
+    uint8_t low  = value & 0xFF;
+    uint8_t high = (value >> 8) & 0xFF;
+    if (memory->registers.fl & FLAG_GF) {
+        // GF=1: 16-bit item N: low at sp-N, high at sp-N+1
+        memory->bytes[(memory->registers.sp - offset     + MEM_SIZE) % MEM_SIZE] = low;
+        memory->bytes[(memory->registers.sp - offset + 1 + MEM_SIZE) % MEM_SIZE] = high;
     } else {
-        return (memory->registers.sp + offset) % MEM_SIZE;
+        // GF=0: 16-bit item N: low at sp+N-1, high at sp+N
+        memory->bytes[(memory->registers.sp + offset - 1) % MEM_SIZE] = low;
+        memory->bytes[(memory->registers.sp + offset    ) % MEM_SIZE] = high;
+    }
+}
+ 
+static inline uint8_t internal_peek8(union Memory *memory, int offset) {
+    uint16_t sp = memory->registers.sp;
+    uint16_t addr;
+
+    if (memory->registers.fl & FLAG_GF) {
+        // GF=1: SP points one past top. Item N is at sp-N.
+        addr = (sp - offset + MEM_SIZE) % MEM_SIZE;
+    } else {
+        // GF=0: SP points at top. Item N is at sp+(N-1).
+        addr = (sp + offset - 1) % MEM_SIZE;
+    }
+    return memory ->bytes[addr];
+}
+ 
+static inline uint16_t internal_peek16(union Memory *memory, int offset) {
+    uint16_t sp = memory->registers.sp;
+    uint16_t addr;
+
+    if (memory->registers.fl & FLAG_GF) {
+        // GF=1: SP points one past top. Item N is at sp-N.
+        addr = (sp - offset + MEM_SIZE) % MEM_SIZE;
+    } else {
+        // GF=0: SP points at top. Item N is at sp+(N-1).
+        addr = (sp + offset - 1) % MEM_SIZE;
+    }
+ 
+    uint8_t low  = memory->bytes[addr];
+    uint8_t high = memory->bytes[(addr + 1) % MEM_SIZE];
+ 
+    return (uint16_t)low | ((uint16_t)high << 8);
+}
+ 
+static inline uint8_t internal_pop8(union Memory *m) {
+    if (m->registers.fl & FLAG_GF) {
+        // GF=1: upward growth. Decrement, then read.
+        m->registers.sp = (m->registers.sp - 1 + MEM_SIZE) % MEM_SIZE;
+        return m->bytes[m->registers.sp];
+    } else {
+        // GF=0: downward growth. Read at SP, then increment.
+        uint8_t v = m->bytes[m->registers.sp];
+        m->registers.sp = (m->registers.sp + 1) % MEM_SIZE;
+        return v;
+    }
+}
+ 
+static inline uint16_t internal_pop16(union Memory *memory) {
+    uint16_t sp = memory->registers.sp;
+ 
+    uint8_t low, high;
+ 
+    if (memory->registers.fl & FLAG_GF) {
+        // GF=1: upward growth. Decrement by 2, then read low at SP, high at SP+1.
+        sp = (sp - 2 + MEM_SIZE) % MEM_SIZE;
+        memory->registers.sp = sp;
+        low  = memory->bytes[sp % MEM_SIZE];
+        high = memory->bytes[(sp + 1) % MEM_SIZE];
+    } else {
+        // GF=0: downward growth. Read high at SP+1, low at SP, then increment by 2.
+        low  = memory->bytes[sp % MEM_SIZE];
+        high = memory->bytes[(sp + 1) % MEM_SIZE];
+        memory->registers.sp = (sp + 2) % MEM_SIZE;
+    }
+ 
+    return (uint16_t)low | ((uint16_t)high << 8);
+}
+ 
+static inline void internal_push8(union Memory *memory, uint8_t value) {
+    uint16_t sp = memory->registers.sp;
+ 
+    if (memory->registers.fl & FLAG_GF) {
+        // GF=1: upward growth. Write at SP, then increment.
+        memory->bytes[sp % MEM_SIZE] = value;
+        memory->registers.sp = (sp + 1) % MEM_SIZE;
+    } else {
+        // GF=0: downward growth. Decrement, then write.
+        memory->registers.sp = (sp - 1 + MEM_SIZE) % MEM_SIZE;
+        memory->bytes[memory->registers.sp] = value;
+    }
+}
+ 
+static inline void internal_push16(union Memory *memory, uint16_t value) {
+    
+    uint16_t sp = memory->registers.sp;
+    uint8_t low  = value & 0xFF;
+    uint8_t high = (value >> 8) & 0xFF;
+     
+    if (memory->registers.fl & FLAG_GF) {
+        // GF=1: upward growth. Write at SP/SP+1, then increment by 2.
+        memory->bytes[sp % MEM_SIZE]           = low;
+        memory->bytes[(sp + 1) % MEM_SIZE]     = high;
+        memory->registers.sp = (sp + 2) % MEM_SIZE;
+    } else {
+        // GF=0: downward growth. Decrement by 2, then write at new SP/SP+1.
+        sp = (sp - 2 + MEM_SIZE) % MEM_SIZE;
+        memory->registers.sp = sp;
+        memory->bytes[sp % MEM_SIZE]           = low;
+        memory->bytes[(sp + 1) % MEM_SIZE]     = high;
+    }
+}
+
+void debug_dump_stack(union Memory *memory) {
+    printf("Stack dump (SP=%04X):\n", memory->registers.sp);
+    for (int i = 0; i < 16; i++) {
+        uint16_t addr = (memory->registers.sp + i) % MEM_SIZE;
+        printf("[%04X]: %02X\n", addr, memory->bytes[addr]);
     }
 }
 
@@ -253,73 +370,93 @@ void render_ui(union Memory *memory, struct GfxHandle *gfx) {
     SDL_RenderPresent(gfx->renderer);
 }
 
-void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHandle *gfx) {
-    // draw red x to vram
+// useful debug fun
+void print_stack_segment(union Memory *memory, uint16_t base, int count) {
+    printf("Stack segment at base %04X:\n", base);
+    printf("SP=%04X\n", memory->registers.sp);
+    printf("[%04X]: ", base);
+    for (int i = 0; i < count; i++) {
+        uint16_t addr = (base + i) % MEM_SIZE;
+        printf("%02X ", memory->bytes[addr]);
+    }
+    printf("\n");
+}
 
-    
+void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHandle *gfx) {
     switch (inst->opcode) {
-        case OP_DBG:
-            print_registers(&memory->registers);
-            break;
         case OP_PUSH8:
-            memory->bytes[memory->registers.sp] = inst->imm8;
-            memory->registers.sp = sp_add(memory, 1);
+            internal_push8(memory, inst->imm8);
             break;
 
         case OP_PUSH16:
-            memory->bytes[memory->registers.sp] = inst->imm16 & 0xFF;
-            memory->bytes[sp_add(memory, 1)] = (inst->imm16 >> 8) & 0xFF;
-            memory->registers.sp = sp_add(memory, 2);
+            internal_push16(memory, inst->imm16);
+            break;
+
+        case OP_POP8:
+            // set im to popped value for potential virtual immediate use
+            memory->registers.im = internal_pop8(memory);
+            // set vf
+            memory->registers.fl |= FLAG_VF;
+            break;
+        case OP_POP16:
+            memory->registers.im = internal_pop16(memory);
+            memory->registers.fl |= FLAG_VF;
             break;
 
         case OP_DROP8:
-            memory->registers.sp = sp_add(memory, -1);
+            internal_pop8(memory);
             break;
         case OP_DROP16:
-            memory->registers.sp = sp_add(memory, -2);
+            internal_pop16(memory);
             break;
 
         case OP_DUP8:
             {
-                uint8_t value = memory->bytes[sp_peek(memory, 1)];
-                memory->bytes[memory->registers.sp] = value;
-                memory->registers.sp = sp_add(memory, 1);
+                internal_push8(memory, internal_peek8(memory, 1));   
             }
             break;
 
         case OP_DUP16:
             {
-                uint8_t low  = memory->bytes[sp_peek(memory, 2)];
-                uint8_t high = memory->bytes[sp_peek(memory, 1)];
-                memory->bytes[memory->registers.sp]             = low;
-                memory->bytes[sp_add(memory, 1)]                = high;
-                memory->registers.sp = sp_add(memory, 2);
+                internal_push16(memory, internal_peek16(memory, 2));
+            }
+            break;
+        case OP_SWAP8:
+            {
+                uint8_t a = internal_peek8(memory, 2);
+                uint8_t b = internal_peek8(memory, 1);
+                internal_writeprevious8(memory, 2, b);
+                internal_writeprevious8(memory, 1, a);
+            }
+            break;
+        case OP_SWAP16:
+            {
+                uint16_t a = internal_peek16(memory, 4);
+                uint16_t b = internal_peek16(memory, 2);
+                internal_writeprevious16(memory, 4, b);
+                internal_writeprevious16(memory, 2, a);
             }
             break;
         case OP_OVER8:
             {
-                uint8_t value = memory->bytes[sp_peek(memory, 2)];
-                memory->bytes[memory->registers.sp] = value;
-                memory->registers.sp = sp_add(memory, 1);
+                internal_push8(memory, internal_peek8(memory, 2));   
             }
             break;
 
         case OP_ROT8:
             {
-                uint8_t a = memory->bytes[sp_peek(memory, 3)];
-                uint8_t b = memory->bytes[sp_peek(memory, 2)];
-                uint8_t c = memory->bytes[sp_peek(memory, 1)];
-
-                memory->bytes[sp_peek(memory, 3)] = b;
-                memory->bytes[sp_peek(memory, 2)] = c;
-                memory->bytes[sp_peek(memory, 1)] = a;
+                uint8_t a = internal_peek8(memory, 3);
+                uint8_t b = internal_peek8(memory, 2);
+                uint8_t c = internal_peek8(memory, 1);
+                internal_writeprevious8(memory, 3, b);
+                internal_writeprevious8(memory, 2, c);
+                internal_writeprevious8(memory, 1, a);
             }
             break;
         case OP_LOAD8:
             {
                 uint8_t value = memory->bytes[inst->imm16 % MEM_SIZE];
-                memory->bytes[memory->registers.sp] = value;
-                memory->registers.sp = sp_add(memory, 1);
+                internal_push8(memory, value);
             }
             break;
 
@@ -327,104 +464,190 @@ void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHa
             {
                 uint16_t addr = inst->imm16;
                 uint16_t value = mem_read16(memory, addr);
-                memory->bytes[memory->registers.sp]  = value & 0xFF;
-                memory->bytes[sp_add(memory, 1)]     = (value >> 8) & 0xFF;
-                memory->registers.sp = sp_add(memory, 2);
+                internal_push16(memory, value);
             }
             break;
 
         case OP_STORE8:
             {
-                uint8_t value = memory->bytes[sp_peek(memory, 1)];
+                uint8_t value = internal_pop8(memory);
                 mem_write8(memory, inst->imm16 % MEM_SIZE, value);
-                memory->registers.sp = sp_add(memory, -1);
             }
             break;
 
         case OP_STORE16:
             {
-                uint8_t low  = memory->bytes[sp_peek(memory, 2)];
-                uint8_t high = memory->bytes[sp_peek(memory, 1)];
-
-                mem_write16(memory, inst->imm16, (high << 8) | low);
-
-                memory->registers.sp = sp_add(memory, -2);
+                uint16_t value = internal_pop16(memory);
+                mem_write16(memory, inst->imm16 % MEM_SIZE, value);
             }
             break;
         case OP_ADD8:
             {
-                uint8_t a = memory->bytes[sp_peek(memory, 2)];
-                uint8_t b = memory->bytes[sp_peek(memory, 1)];
+                uint8_t a = internal_pop8(memory);
+                uint8_t b = internal_pop8(memory);
                 uint16_t result = a + b;
-                memory->bytes[sp_peek(memory, 2)] = result & 0xFF;
-                memory->registers.sp = sp_add(memory, -1);
-                memory->registers.fl &= ~(FLAG_CF);
-                if (result > 0xFF)         memory->registers.fl |= FLAG_CF;
+                internal_push8(memory, result & 0xFF);
+                memory->registers.fl &= ~FLAG_CF;
+                if (result > 0xFF) {
+                    memory->registers.fl |= FLAG_CF;
+                }
             }
             break;
 
         case OP_ADD16:
             {
-                uint16_t a = memory->bytes[sp_peek(memory, 4)] | (memory->bytes[sp_peek(memory, 3)] << 8);
-                uint16_t b = memory->bytes[sp_peek(memory, 2)] | (memory->bytes[sp_peek(memory, 1)] << 8);
+                uint16_t a = internal_pop16(memory);
+                uint16_t b = internal_pop16(memory);
                 uint32_t result = a + b;
-                memory->bytes[sp_peek(memory, 4)] = result & 0xFF;
-                memory->bytes[sp_peek(memory, 3)] = (result >> 8) & 0xFF;
-                memory->registers.sp = sp_add(memory, -2);
+                internal_push16(memory, result & 0xFFFF);
+                memory->registers.fl &= ~FLAG_CF;
+                if (result > 0xFFFF) {
+                    memory->registers.fl |= FLAG_CF;
+                }
+            }
+            break;
+        case OP_SUB8:
+            {
+                uint8_t b = internal_pop8(memory);
+                uint8_t a = internal_pop8(memory);
+                uint16_t result = a - b;
+                internal_push8(memory, result & 0xFF);
                 memory->registers.fl &= ~(FLAG_CF);
-                if (result > 0xFFFF)          memory->registers.fl |= FLAG_CF;
+                if (a < b)                 memory->registers.fl |= FLAG_CF;
+            }
+            break;
+        case OP_SUB16:
+            {
+                uint16_t b = internal_pop16(memory);
+                uint16_t a = internal_pop16(memory);
+                uint32_t result = a - b;
+                internal_push16(memory, result & 0xFFFF);
+                memory->registers.fl &= ~(FLAG_CF);
+                if (a < b)                 memory->registers.fl |= FLAG_CF;
+            }
+            break;
+        case OP_DIV8:
+            {
+                uint8_t divisor = internal_pop8(memory);
+                uint8_t dividend = internal_pop8(memory);
+                uint16_t result = (divisor == 0) ? 0 : dividend / divisor;
+                internal_push8(memory, result & 0xFF);
+                memory->registers.fl &= ~(FLAG_CF);
+                if (divisor == 0) memory->registers.fl |= FLAG_CF;
+            }
+            break;
+        case OP_DIV16:
+            {
+                uint16_t divisor = internal_pop16(memory);
+                uint16_t dividend = internal_pop16(memory);
+                uint32_t result = (divisor == 0) ? 0 : dividend / divisor;
+                internal_push16(memory, result & 0xFFFF);
+                memory->registers.fl &= ~(FLAG_CF);
+                if (divisor == 0) memory->registers.fl |= FLAG_CF;
+            }
+            break;
+
+        case OP_MOD8:
+            {
+                uint8_t divisor = internal_pop8(memory);
+                uint8_t dividend = internal_pop8(memory);
+                uint16_t result = (divisor == 0) ? 0 : dividend % divisor;
+                internal_push8(memory, result & 0xFF);
+                memory->registers.fl &= ~(FLAG_CF);
+                if (divisor == 0) memory->registers.fl |= FLAG_CF;
             }
             break;
         case OP_CMP8:
             {
-                uint8_t a = memory->bytes[sp_peek(memory, 1)];
-                uint8_t b = memory->bytes[sp_peek(memory, 2)];
-                memory->registers.sp = sp_add(memory, -2);
+                uint8_t a = internal_pop8(memory);
+                uint8_t b = internal_pop8(memory);
                 uint8_t cmp = (a > b) ? 255 : (a < b) ? 1 : 0;
                 if (a < b) memory->registers.fl |= FLAG_CF;
                 else       memory->registers.fl &= ~FLAG_CF;
-                memory->bytes[memory->registers.sp] = cmp;
-                memory->registers.sp = sp_add(memory, 1);
+                internal_push8(memory, cmp);
             }
             break;
         case OP_CMP16:
             {
-                uint16_t a = memory->bytes[sp_peek(memory, 4)] | (memory->bytes[sp_peek(memory, 3)] << 8);
-                uint16_t b = memory->bytes[sp_peek(memory, 2)] | (memory->bytes[sp_peek(memory, 1)] << 8);
-                memory->registers.sp = sp_add(memory, -4);
+                uint16_t a = internal_pop16(memory);
+                uint16_t b = internal_pop16(memory);
                 uint8_t cmp = (a > b) ? 255 : (a < b) ? 1 : 0;
                 if (a < b) memory->registers.fl |= FLAG_CF;
                 else       memory->registers.fl &= ~FLAG_CF;
-                memory->bytes[memory->registers.sp] = cmp;
-                memory->registers.sp = sp_add(memory, 1);
+                internal_push8(memory, cmp);
             }
             break;
         case OP_AND8:
             {
-                uint8_t a = memory->bytes[sp_peek(memory, 2)];
-                uint8_t b = memory->bytes[sp_peek(memory, 1)];
+                uint8_t a = internal_pop8(memory);
+                uint8_t b = internal_pop8(memory);
                 uint8_t result = a & b;
-                memory->bytes[sp_peek(memory, 2)] = result;
-                memory->registers.sp = sp_add(memory, -1);
+                internal_push8(memory, result);
+            }
+            break;
+        case OP_AND16:
+            {
+                uint16_t a = internal_pop16(memory);
+                uint16_t b = internal_pop16(memory);
+                uint16_t result = a & b;
+                internal_push16(memory, result);
             }
             break;
         case OP_OR8:
             {
-                uint8_t a = memory->bytes[sp_peek(memory, 2)];
-                uint8_t b = memory->bytes[sp_peek(memory, 1)];
+                uint8_t a = internal_pop8(memory);
+                uint8_t b = internal_pop8(memory);
                 uint8_t result = a | b;
-                memory->bytes[sp_peek(memory, 2)] = result;
-                memory->registers.sp = sp_add(memory, -1);
+                internal_push8(memory, result);
+            }
+            break;
+        case OP_XOR8:
+            {
+                uint8_t a = internal_pop8(memory);
+                uint8_t b = internal_pop8(memory);
+                uint8_t result = a ^ b;
+                internal_push8(memory, result);
+            }
+            break;
+        case OP_NOT8:
+            {
+                internal_push8(memory, ~internal_pop8(memory));
+            }
+            break;
+        case OP_SHL8:
+            {
+                uint8_t shift = internal_pop8(memory);
+                uint8_t value = internal_pop8(memory);
+
+                uint8_t result = value << (shift & 7);
+                internal_push8(memory, result);
+            }
+            break;
+        case OP_SHL16:
+            {
+                uint8_t shift = internal_pop8(memory);
+                uint16_t value = internal_pop16(memory);
+
+                uint16_t result = value << (shift & 15);
+                internal_push16(memory, result);
             }
             break;
         case OP_SHR8:
             {
-                uint8_t value = memory->bytes[sp_peek(memory, 2)];
-                uint8_t shift = memory->bytes[sp_peek(memory, 1)];
+                uint8_t shift = internal_pop8(memory);
+                uint8_t value = internal_pop8(memory);
 
                 uint8_t result = value >> (shift & 7);
-                memory->bytes[sp_peek(memory, 2)] = result;
-                memory->registers.sp = sp_add(memory, -1);
+                internal_push8(memory, result);
+            }
+            break;
+        case OP_SHR16:
+            {
+                uint8_t shift = internal_pop8(memory);
+                uint16_t value = internal_pop16(memory);
+
+                uint16_t result = value >> (shift & 15);
+                internal_push16(memory, result);
             }
             break;
         case OP_RFD:
@@ -440,22 +663,45 @@ void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHa
             break;
         case OP_JZ:
             {
-                uint8_t cond = memory->bytes[sp_peek(memory, 1)];
-                memory->registers.sp = sp_add(memory, -1);
+                uint8_t cond = internal_pop8(memory);
                 if (cond == 0) inst->next_pc = inst->imm16 % MEM_SIZE;
             }
             break;
         case OP_JNZ:
             {
-                uint8_t cond = memory->bytes[sp_peek(memory, 1)];
-                memory->registers.sp = sp_add(memory, -1);
+                uint8_t cond = internal_pop8(memory);
                 if (cond != 0) inst->next_pc = inst->imm16 % MEM_SIZE;
             }
             break;
-        default:
-            printf("implicit NOP: 0x%02X\n", inst->opcode);
-            // vm_halted = true;
+        case OP_CALL:
+            {
+                uint16_t return_addr = inst->next_pc;
+                internal_push16(memory, return_addr);
+                inst->next_pc = inst->imm16 % MEM_SIZE;
+            }
             break;
+        case OP_RET:
+            {   
+                uint16_t return_addr = internal_pop16(memory);
+                inst->next_pc = return_addr % MEM_SIZE;
+            }
+            break;
+        case OP_PUSHFL:
+            internal_push8(memory, memory->registers.fl);
+            break;
+        case OP_POPFL:
+            memory->registers.fl = internal_pop8(memory);
+            break;
+        default:
+            printf("Unknown opcode: 0x%02X at address 0x%04X\n", inst->opcode, inst->pc);
+            printf("Due to incomplete implementation, we halt on unknown instructions so i can chisel out op by op.");
+            vm_halted = true;
+            break;
+    }
+
+    if (inst->used_virtual_immediate) {
+        // clear VF after use
+        memory->registers.fl &= ~FLAG_VF;
     }
 }
 
@@ -486,11 +732,11 @@ void print_memory(union Memory *memory, uint16_t start, uint16_t end) {
     }
 }
 
-const double VM_HZ = 1 << 24;
+static double VM_HZ = 1 << 24;
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <cartridge.bin>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <cartridge.bin> [hz]\n", argv[0]);
         return 1;
     }
 
@@ -558,6 +804,17 @@ int main(int argc, char *argv[]) {
     fread(memory.bytes, 1, MEM_SIZE, cartridge);
     fclose(cartridge);
 
+    if (argc >= 3) {
+        VM_HZ = atof(argv[2]);
+        if (VM_HZ <= 0) {
+            fprintf(stderr, "Error: hz must be positive\n");
+            return 1;
+        }
+        printf("VM speed: %.0f Hz\n", VM_HZ);
+    }
+
+    tmp_dbg_initial_sp = memory.registers.sp;
+
     printf("Cartridge loaded successfully. Starting execution...\n");
 
     SDL_Rect rect = {
@@ -576,40 +833,25 @@ int main(int argc, char *argv[]) {
 
     SDL_Event e;
 
-    // ---- VM timing ----
-
 
     uint64_t perf_freq = SDL_GetPerformanceFrequency();
     uint64_t last_counter = SDL_GetPerformanceCounter();
 
     double cycle_accumulator = 0.0;
 
-    // ---- UI timing ----
 
     uint32_t last_frame = SDL_GetTicks();
     const uint32_t FRAME_TIME_MS = 16;
-
-    // ---- Stats ----
 
     uint64_t total_steps = 0;
     uint64_t vm_cycles = 0;
 
     uint32_t last_stats = SDL_GetTicks();
 
-    // ---- Initial framebuffer upload ----
-
     refresh_display(&memory, &gfx);
     gfx.dirty = false;
 
-    // =========================================================
-    // Main loop
-    // =========================================================
-
     while (keep_running) {
-
-        // -----------------------------------------------------
-        // Events
-        // -----------------------------------------------------
 
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
@@ -618,10 +860,6 @@ int main(int argc, char *argv[]) {
                     break;
             }
         }
-
-        // -----------------------------------------------------
-        // VM clocking
-        // -----------------------------------------------------
 
         uint64_t now_counter = SDL_GetPerformanceCounter();
 
@@ -651,18 +889,10 @@ int main(int argc, char *argv[]) {
             vm_cycles++;
         }
 
-        // -----------------------------------------------------
-        // Upload framebuffer
-        // -----------------------------------------------------
-
         if (gfx.dirty) {
             refresh_display(&memory, &gfx);
             gfx.dirty = false;
         }
-
-        // -----------------------------------------------------
-        // Stable UI rendering
-        // -----------------------------------------------------
 
         uint32_t now_ms = SDL_GetTicks();
 
@@ -672,10 +902,6 @@ int main(int argc, char *argv[]) {
 
             last_frame = now_ms;
         }
-
-        // -----------------------------------------------------
-        // Stats
-        // -----------------------------------------------------
 
         if (now_ms - last_stats >= 2000) {
 
@@ -699,10 +925,6 @@ int main(int argc, char *argv[]) {
         // tiny sleep so we don't spin at 100% CPU
         SDL_Delay(1);
     }
-
-    // =========================================================
-    // Shutdown
-    // =========================================================
 
     FILE *mem_dump = fopen("memory_dump.bin", "wb");
 

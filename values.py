@@ -41,11 +41,5 @@ ConstraintLocation = WordValue | Literal["auto"]
 Value = ByteValue | WordValue | Reference
 
 
-def byte_len(list_of_values):
-    total = 0
-    for value in list_of_values:
-        if isinstance(value, Value):
-            total += value.length()
-        else:
-            raise ValueError(f"Invalid value in initializer: {value}")
-    return total
+def byte_len(initializer):
+    return sum(v.length() for v in initializer)

@@ -1,0 +1,197 @@
+[0x0000]	word	PC	=	start
+[0x0002]	word	SP	=	stack
+[0x0004]	word	DP	=	display
+[0x0006]	word	AP	=	voices
+[0x0008]	byte	IN
+[0x0009]	byte	FL	=	0x10
+[0x000A]	word	IM
+[0x000C]	byte[4]	_rsv
+
+[auto]	word	ant_x
+[auto]	word	ant_y
+[auto]	byte	ant_dir
+[auto]	byte	cell_cache
+
+[auto] byte[] start = {
+    PUSH16; word 64;
+    STORE16; ant_x;
+
+    PUSH16; word 64;
+    STORE16; ant_y;
+
+    PUSH8; 0;
+    STORE8; ant_dir;
+    JMP; loop;
+}
+
+[auto] byte[] loop = {
+    RFD;
+    CALL; load_cell;
+
+    DUP8;
+    PUSH8; 0;
+    CMP8;
+
+    JZ; turn_right;
+
+    JMP; turn_left;
+}
+
+[auto] byte[] turn_right = {
+
+    LOAD8; ant_dir;
+    PUSH8; 1;
+    ADD8;
+
+    PUSH8; 4;
+    MOD8;
+
+    STORE8; ant_dir;
+    DROP8;
+    JMP; flip;
+}
+
+[auto] byte[] turn_left = {
+
+    LOAD8; ant_dir;
+    PUSH8; 1;
+    SUB8;
+
+    PUSH8; 4;
+    MOD8;
+
+    STORE8; ant_dir;
+    DROP8;
+    JMP; flip;
+}
+
+[auto] byte[] flip = {
+
+    LOAD8; cell_cache;
+    NOT8;
+
+    CALL; store_cell;
+
+    CALL; move;
+    JMP; loop;
+}
+
+[auto] byte[] move = {
+
+    LOAD8; ant_dir;
+
+    PUSH8; 0;
+    CMP8;
+    JZ; up;
+
+    LOAD8; ant_dir;
+
+    PUSH8; 1;
+    CMP8;
+    JZ; right;
+
+    LOAD8; ant_dir;
+
+    PUSH8; 2;
+    CMP8;
+    JZ; down;
+
+    JMP; left;
+}
+
+[auto] byte[] up = {
+
+    LOAD16; ant_y;
+    PUSH16; word 1;
+    SUB16;
+    STORE16; ant_y;
+
+    RET;
+}
+
+[auto] byte[] right = {
+
+    LOAD16; ant_x;
+    PUSH16; word 1;
+    ADD16;
+    STORE16; ant_x;
+
+    RET;
+}
+
+[auto] byte[] down = {
+
+    LOAD16; ant_y;
+    PUSH16; word 1;
+    ADD16;
+    STORE16; ant_y;
+
+    RET;
+}
+
+[auto] byte[] left = {
+
+    LOAD16; ant_x;
+    PUSH16; word 1;
+    SUB16;
+    STORE16; ant_x;
+
+    RET;
+}
+
+[auto] byte[] load_cell = {
+
+    // pack
+    LOAD16; ant_y;
+    PUSH8; 7;
+    SHL16;
+    LOAD16; ant_x;
+    ADD16;
+    LOAD16; DP;
+    ADD16;
+
+    // Set cell address as virtual immediate for load8
+    POP16;
+
+    LOAD8;
+
+    DUP8; // copy cell
+
+    STORE8; cell_cache; // store cell, pops
+
+    // dumb hack to get ret address back on top
+    ROT8;
+    ROT8;
+
+    RET;
+}
+
+[auto] byte[] store_cell = {
+    ROT8;
+    DUP8;
+    STORE8; cell_cache;
+
+    LOAD16; ant_y;
+    PUSH8; 7;
+    SHL16;
+
+    LOAD16; ant_x;
+    ADD16;
+
+    LOAD16; DP;
+    ADD16;
+
+    POP16;
+
+    STORE8;
+
+    RET;
+}
+
+[auto] byte[] catchfailfast = {
+    HLT;
+}
+
+[auto]	byte[64]	stack
+[auto]	byte[16384]	display	<	"white.bin"
+[auto]	byte[64]	voices
