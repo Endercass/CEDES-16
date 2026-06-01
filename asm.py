@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-import re
 import sys
+import re
+import struct
+
+from values import ByteValue, WordValue, Reference, byte_len, Value
+from constraints import Constraint
+from assemble import assemble
+from ops import OPCODES
 
 TOKEN_SPECIFICATION = [
+    ("STRING",      r'"[^"]*"'),
     ("HEXNUMBER",   r'0x[0-9A-Fa-f]+'),
     ("NUMBER",      r"\d+"),
     ("IDENT",       r"[A-Za-z_][A-Za-z0-9_]*"),
@@ -11,6 +18,7 @@ TOKEN_SPECIFICATION = [
     ("LBRACK",      r"\["),
     ("RBRACK",      r"\]"),
     ("EQUAL",       r"="),
+    ("LANGLE",      r"<"),
     ("COMMA",       r","),
     ("SEMI",        r";"),
     ("WS",          r"[ \t]+"),
@@ -36,47 +44,187 @@ def tokenize(text):
         yield (line_num, col, kind, value)
 
 def preprocess_strip_comments(text):
-    # remove // comments
     return re.sub(r"//.*", "", text)
 
-def main(path):
+class Parser:
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.pos = 0
+
+    def peek(self):
+        if self.pos < len(self.tokens):
+            return self.tokens[self.pos]
+        return None
+
+    def match(self, kind):
+        tok = self.peek()
+        if tok and tok[2] == kind:
+            self.pos += 1
+            return tok
+        return None
+    
+    def expect(self, kind):
+        tok = self.match(kind)
+        if not tok:
+            raise SyntaxError(f"Expected {kind}, got {self.peek()}")
+        return tok
+    
+    def parse_location(self):
+        self.expect("LBRACK")
+        if tok := self.match("HEXNUMBER"):
+            loc = int(tok[3], 16)
+        elif tok := self.match("NUMBER"):
+            loc = int(tok[3], 10)
+        elif tok := self.match("IDENT"):
+            if tok[3] == "auto":
+                loc = "auto"
+            else:
+                raise SyntaxError(f"Invalid location: {tok[3]}")
+        else:
+            raise SyntaxError("Expected location in brackets")
+        self.expect("RBRACK")
+        return loc
+
+    def parse_type(self):
+        tok = self.expect("IDENT")
+        base_type = tok[3]
+        if base_type not in ("byte", "word"):
+            raise SyntaxError(f"Unknown type {base_type}")
+        
+        is_array = False
+        array_size = None
+        if self.match("LBRACK"):
+            is_array = True
+            if num := self.match("NUMBER"):
+                array_size = int(num[3], 10)
+            elif num := self.match("HEXNUMBER"):
+                array_size = int(num[3], 16)
+            elif num := self.match("RBRACK"):
+                # like byte[] length not specified
+                self.pos -= 1 # unget
+            self.expect("RBRACK")
+        return base_type, is_array, array_size
+
+    def parse_value_item(self):
+        tok = self.peek()
+        if not tok:
+            raise SyntaxError("Unexpected EOF in value list")
+        
+        explicit_word = False
+        explicit_byte = False
+        if tok[2] == "IDENT" and tok[3] in ("word", "byte"):
+            if tok[3] == "word":
+                explicit_word = True
+            if tok[3] == "byte":
+                explicit_byte = True
+            self.pos += 1
+            tok = self.peek()
+            if not tok:
+                raise SyntaxError("Unexpected EOF after modifier")
+        
+        if tok[2] == "IDENT":
+            self.pos += 1
+            if tok[3] in OPCODES:
+                val = ByteValue(OPCODES[tok[3]])
+                if explicit_word:
+                    val = WordValue(val.value)
+                return val
+            else:
+                return Reference(tok[3])
+        elif tok[2] in ("NUMBER", "HEXNUMBER"):
+            self.pos += 1
+            num = int(tok[3], 16) if tok[2] == "HEXNUMBER" else int(tok[3], 10)
+            if explicit_word or num > 255:
+                return WordValue(num)
+            else:
+                return ByteValue(num)
+        else:
+            raise SyntaxError(f"Unexpected token in value list: {tok}")
+
+    def parse_constraint(self):
+        if not self.peek():
+            return None
+        loc = self.parse_location()
+        base_type, is_array, array_size = self.parse_type()
+        name = self.expect("IDENT")[3]
+        
+        initializer = []
+        has_init = False
+        
+        if self.match("LANGLE"):
+            has_init = True
+            path_tok = self.expect("STRING")
+            path = path_tok[3][1:-1] # strip quotes
+            with open(path, "rb") as f:
+                data = f.read()
+            if base_type == "byte":
+                initializer = [ByteValue(b) for b in data]
+            else:
+                for i in range(0, len(data), 2):
+                    if i+1 < len(data):
+                        v = struct.unpack("<H", data[i:i+2])[0]
+                        initializer.append(WordValue(v))
+                    else:
+                        initializer.append(WordValue(data[i]))
+        elif self.match("EQUAL"):
+            has_init = True
+            if self.match("LBRACE"):
+                while not self.match("RBRACE"):
+                    val = self.parse_value_item()
+                    initializer.append(val)
+                    self.match("SEMI")
+            else:
+                val = self.parse_value_item()
+                initializer.append(val)
+        
+        # Calculate length
+        if not is_array and not has_init:
+            length = 2 if base_type == "word" else 1
+        elif not is_array and has_init:
+            length = byte_len(initializer)
+        elif is_array and not has_init:
+            if array_size is None:
+                raise SyntaxError(f"Array {name} must have a size or an initializer")
+            length = array_size * (2 if base_type == "word" else 1)
+        elif is_array and has_init:
+            calc_len = byte_len(initializer)
+            if array_size is not None:
+                expected = array_size * (2 if base_type == "word" else 1)
+                length = expected
+            else:
+                length = calc_len
+                
+        return Constraint(location=loc, length=length, name=name, initializer=initializer)
+
+    def parse(self):
+        constraints = []
+        while self.peek():
+            c = self.parse_constraint()
+            if c:
+                constraints.append(c)
+        return constraints
+
+def read_and_parse(path):
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     text = preprocess_strip_comments(text)
-    for tok in tokenize(text):
-        print(tok)
+    tokens = list(tokenize(text))
+    parser = Parser(tokens)
+    return parser.parse()
+
+def main(path):
+    constraints = read_and_parse(path)
+    memory = bytearray(65536)
+    assemble(memory, constraints)
+    
+    out_path = path.replace(".cxt", ".bin") if path.endswith(".cxt") else path + ".bin"
+    with open(out_path, "wb") as f:
+        f.write(memory)
+    print(f"Assembled {path} -> {out_path}")
+    print("Loc\tLen\tName")
+    for c in constraints:
+        print(f"0x{c.location:04X}\t{c.length}\t{c.name}")
 
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "test.cxt"
     main(path)
-
-
-# How this assembler works:
-# Since the cartridge is just free floating memory with a short block of 
-# pointer registers at the start, and there are no standard memory layouts
-# for code or data.
-
-# While you could define a memory layout manually, this assembler is
-# able to assign addresses to code and data automatically, taking note of
-# the size of each memory constraint.
-
-# A memory constraint can be 1-65536 bytes in size, and can be referred to
-# by name. A specific address can be assigned to a memory constraint (useful
-# for fixed hardware registers or following a specific memory map), or it can
-# be left unassigned, in which case the assembler will assign it an address
-# automatically, starting from 0 and working upwards.
-
-# The assembler will also check for overlapping memory constraints and report
-# errors if any are found.
-
-# Memory constraints are defined in a tabular format, starting with a location
-# surrounded by square brackets (e.g. [0x0000] or [auto]) followed by the data
-# type (e.g. byte, word, byte[16], byte[]), a name, and an optional initializer (e.g. = 0xFF or = {0x01; 0x02; 0x03;}).
-
-# Note for array constraints: if there is no initializer, the size of the array must be specified (e.g. byte[16]). 
-# If there is an initializer, the size of the array can be inferred from the number of elements in the initializer (e.g. byte[] = {0x01; 0x02; 0x03;} would create a byte array of size 3).
-# This is very useful for defining the program code, as you can just write out the instructions in the initializer and let the assembler figure out how much space they take up.
-
-# top level:
-# The top level of the tree that is generated by the parser is a list of memory constraints.
-# 

@@ -27,6 +27,7 @@
 
 // Reserve enough stack for our usecase
 [auto]	byte[8]	stack
+[auto]	word	counter
 // Defines a memory region of 16384 bytes called "framebuffer" at an automatic location. Display a little color test pattern
 [auto]	byte[16384]	display	<	"colors.bin"
 // Audio isnt implemented yet but for future reserve space for the voices
