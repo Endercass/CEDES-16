@@ -5,8 +5,9 @@
 
 int16_t DEADZONE = 8000;
 SDL_GameController* controller = NULL;
+SDL_Point mousePos;
 
-void pollInput(union Memory *memory) {
+void pollInput(union Memory *memory, struct InputHandle * inp) {
     uint8_t in = 0;
 
     const uint8_t* keyboard = SDL_GetKeyboardState(NULL);
@@ -42,6 +43,20 @@ void pollInput(union Memory *memory) {
             controller = NULL;
         }
     }
+
+    uint32_t mouseState = SDL_GetMouseState(&mousePos.x, &mousePos.y);
+    if (mouseState & SDL_BUTTON(SDL_BUTTON_LEFT)) {
+        if (SDL_PointInRect(&mousePos, inp->btn_up))     in |= BIT_UP;
+        if (SDL_PointInRect(&mousePos, inp->btn_down))   in |= BIT_DOWN;
+        if (SDL_PointInRect(&mousePos, inp->btn_left))   in |= BIT_LEFT;
+        if (SDL_PointInRect(&mousePos, inp->btn_right))  in |= BIT_RIGHT;
+ 
+        if (SDL_PointInRect(&mousePos, inp->btn_a))      in |= BIT_A;
+        if (SDL_PointInRect(&mousePos, inp->btn_b))      in |= BIT_B;
+        if (SDL_PointInRect(&mousePos, inp->btn_start))  in |= BIT_START;
+        if (SDL_PointInRect(&mousePos, inp->btn_select)) in |= BIT_SELECT;
+    }
+
 
     memory->registers.in = in;
 }

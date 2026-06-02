@@ -291,35 +291,129 @@ void render_ui(union Memory *memory, struct GfxHandle *gfx) {
     SDL_SetRenderDrawColor(gfx->renderer, 20, 20, 20, 255);
     SDL_RenderClear(gfx->renderer);
 
-    // bezel/background
-    SDL_Rect bezel = {
-        gfx->rect.x - 8,
-        gfx->rect.y - 8,
-        gfx->rect.w + 16,
-        gfx->rect.h + 16
+    gfx->bezel = (struct SDL_Rect){
+        .x = gfx->screen.x - 8,
+        .y = gfx->screen.y - 8,
+        .w = gfx->screen.w + 16,
+        .h = gfx->screen.h + 16
     };
 
     SDL_SetRenderDrawColor(gfx->renderer, 80, 80, 80, 255);
-    SDL_RenderFillRect(gfx->renderer, &bezel);
+    SDL_RenderFillRect(gfx->renderer, &gfx->bezel);
 
     // display
     SDL_RenderCopy(
         gfx->renderer,
         gfx->texture,
         NULL,
-        &gfx->rect
+        &gfx->screen
     );
 
     // input pad
-    SDL_Rect input_pad = {
-        .x = 64,
-        .y = gfx->rect.y + gfx->rect.h + 64,
-        .w = SDL_WIDTH - 128,
-        .h = SDL_HEIGHT - (gfx->rect.y + gfx->rect.h + 128)
-    };
+    gfx->input_pad->x = 64;
+    gfx->input_pad->y = gfx->screen.y + gfx->screen.h + 64;
+    gfx->input_pad->w = SDL_WIDTH - 128;
+    gfx->input_pad->h = SDL_HEIGHT - (gfx->screen.y + gfx->screen.h + 128);
+
+    // input value
+    uint8_t in = memory->registers.in;
 
     SDL_SetRenderDrawColor(gfx->renderer, 40, 40, 40, 255);
-    SDL_RenderFillRect(gfx->renderer, &input_pad);
+    SDL_RenderFillRect(gfx->renderer, gfx->input_pad);
+
+    int pad_cx = gfx->input_pad->y + (gfx->input_pad->h / 2);
+    int pad_top = gfx->input_pad->y;
+    int pad_bottom = gfx->input_pad->y + gfx->input_pad->h;
+
+    // DPAD!!
+    int dpad_size = 32;
+    int dpad_gap  = 16;
+
+    int dpad_cx = gfx->input_pad->x + 100;
+    int dpad_cy = pad_cx;
+
+    // Up
+    gfx->btn_up->w = dpad_size;
+    gfx->btn_up->h = dpad_size;
+    gfx->btn_up->x = dpad_cx - dpad_size / 2;
+    gfx->btn_up->y = dpad_cy - dpad_gap - dpad_size;
+    SDL_SetRenderDrawColor(gfx->renderer, 100, in & BIT_UP ? 255 : 100, 100, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_up);
+
+    // Down
+    gfx->btn_down->w = dpad_size;
+    gfx->btn_down->h = dpad_size;
+    gfx->btn_down->x = dpad_cx - dpad_size / 2;
+    gfx->btn_down->y = dpad_cy + dpad_gap;
+    SDL_SetRenderDrawColor(gfx->renderer, 100, in & BIT_DOWN ? 255 : 100, 100, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_down);
+
+    // Left
+    gfx->btn_left->w = dpad_size;
+    gfx->btn_left->h = dpad_size;
+    gfx->btn_left->x = dpad_cx - dpad_gap - dpad_size;
+    gfx->btn_left->y = dpad_cy - dpad_size / 2;
+    SDL_SetRenderDrawColor(gfx->renderer, 100, in & BIT_LEFT ? 255 : 100, 100, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_left);
+
+    // Right
+    gfx->btn_right->w = dpad_size;
+    gfx->btn_right->h = dpad_size;
+    gfx->btn_right->x = dpad_cx + dpad_gap;
+    gfx->btn_right->y = dpad_cy - dpad_size / 2;
+    SDL_SetRenderDrawColor(gfx->renderer, 100, in & BIT_RIGHT ? 255 : 100, 100, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_right);
+
+    // D-pad center fill
+    SDL_Rect dpad_center = {
+        dpad_cx - dpad_size / 2,
+        dpad_cy - dpad_size / 2,
+        dpad_size,
+        dpad_size
+    };
+    SDL_SetRenderDrawColor(gfx->renderer, 100, 100, 100, 255);
+    SDL_RenderFillRect(gfx->renderer, &dpad_center);
+
+    int small_btn_w = 48;
+    int small_btn_h = 18;
+    
+    // Select button
+    gfx->btn_select->w = small_btn_w;
+    gfx->btn_select->h = small_btn_h;
+    gfx->btn_select->x = gfx->input_pad->x + 16;
+    gfx->btn_select->y = pad_top + 16;
+    SDL_SetRenderDrawColor(gfx->renderer, 90, in & BIT_SELECT ? 255 : 90, 90, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_select);
+
+    // Start button
+    gfx->btn_start->w = small_btn_w;
+    gfx->btn_start->h = small_btn_h;
+    gfx->btn_start->x = gfx->input_pad->x + gfx->input_pad->w - small_btn_w - 16;
+    gfx->btn_start->y = pad_top + 16;
+    SDL_SetRenderDrawColor(gfx->renderer, 90, in & BIT_START ? 255 : 90, 90, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_start);
+
+    // A/B buttons
+    int btn_sqr_size = 48;
+    int face_cx = gfx->input_pad->x + gfx->input_pad->w - 100;
+    int face_cy = pad_cx;
+    int face_spacing = btn_sqr_size * 1.5;
+
+    // A button
+    gfx->btn_a->w = btn_sqr_size;
+    gfx->btn_a->h = btn_sqr_size;
+    gfx->btn_a->x = face_cx - (face_spacing / 2) - (btn_sqr_size / 2);
+    gfx->btn_a->y = face_cy - (btn_sqr_size / 2);                       
+    SDL_SetRenderDrawColor(gfx->renderer, 30, in & BIT_A ? 255 : 90, 30, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_a);
+
+    // B button
+    gfx->btn_b->w = btn_sqr_size;
+    gfx->btn_b->h = btn_sqr_size;
+    gfx->btn_b->x = face_cx + (face_spacing / 2) - (btn_sqr_size / 2); 
+    gfx->btn_b->y = face_cy - (btn_sqr_size / 2);                      
+    SDL_SetRenderDrawColor(gfx->renderer, in & BIT_B ? 255 : 90, 30, 30, 255);
+    SDL_RenderFillRect(gfx->renderer, gfx->btn_b);
 
     SDL_RenderPresent(gfx->renderer);
 }
@@ -788,11 +882,42 @@ int main(int argc, char *argv[]) {
         .h = DSP_HEIGHT * 4
     };
 
+    SDL_Rect input_pad;
+    SDL_Rect btn_up;
+    SDL_Rect btn_down;
+    SDL_Rect btn_left;
+    SDL_Rect btn_right;
+    SDL_Rect btn_a;
+    SDL_Rect btn_b;
+    SDL_Rect btn_start;
+    SDL_Rect btn_select;
+
     struct GfxHandle gfx = {
         .renderer = ren,
         .texture = tex,
-        .rect = rect,
+        .screen = rect,
+        .input_pad = &input_pad,
+        .btn_up = &btn_up,
+        .btn_down = &btn_down,
+        .btn_left = &btn_left,
+        .btn_right = &btn_right,
+        .btn_a = &btn_a,
+        .btn_b = &btn_b,
+        .btn_start = &btn_start,
+        .btn_select = &btn_select,
         .dirty = true
+    };
+
+    struct InputHandle inp = {
+        .input_pad = &input_pad,
+        .btn_up = &btn_up,
+        .btn_down = &btn_down,
+        .btn_left = &btn_left,
+        .btn_right = &btn_right,
+        .btn_a = &btn_a,
+        .btn_b = &btn_b,
+        .btn_start = &btn_start,
+        .btn_select = &btn_select,
     };
 
     SDL_Event e;
@@ -865,16 +990,16 @@ int main(int argc, char *argv[]) {
         uint32_t now_ms = SDL_GetTicks();
 
         if (now_ms - last_frame >= FRAME_TIME_MS) {
-
-            render_ui(&memory, &gfx);
-
-            last_frame = now_ms;
-
             if (vm_waiting) {
-                pollInput(&memory);
+                pollInput(&memory, &inp);
                 vm_waiting = false;
                 cycle_accumulator = 0.0;
             }
+            
+            render_ui(&memory, &gfx);
+            
+            last_frame = now_ms;
+
         }
 
         if (now_ms - last_stats >= 5000) {

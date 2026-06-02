@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #define MEM_SIZE      (1 << 16)
@@ -53,7 +54,17 @@ union Memory {
 struct GfxHandle {
     SDL_Renderer *renderer;
     SDL_Texture *texture;
-    SDL_Rect rect;
+    SDL_Rect screen;
+    SDL_Rect bezel;
+    SDL_Rect *input_pad;
+    SDL_Rect *btn_up;
+    SDL_Rect *btn_down;
+    SDL_Rect *btn_left;
+    SDL_Rect *btn_right;
+    SDL_Rect *btn_a;
+    SDL_Rect *btn_b;
+    SDL_Rect *btn_start;
+    SDL_Rect *btn_select;
     bool dirty;
 };
 
