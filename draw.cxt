@@ -1,0 +1,405 @@
+[0x0000]	word	PC	=	start
+[0x0002]	word	SP	=	stack
+[0x0004]	word	DP	=	display
+[0x0006]	word	AP	=	voices
+[0x0008]	byte	IN
+[0x0009]	byte	FL	=	0x10
+[0x000A]	word	IM
+[0x000C]	byte[4]	_rsv
+
+[auto]	word	px_x
+[auto]	word	px_y
+[auto]  byte    color
+[auto]  byte    palette_idx
+[auto]  byte    prev_input
+[auto]  byte    edge_input
+[auto]  word    fill_counter
+[auto]  byte    cursor_pixel
+[auto]  byte    flash_timer
+[auto]  byte    flash_state
+[auto]  byte    moved
+[auto]  byte[5] palette = {0x00; 0xFF; 0xE0; 0x1C; 0x03}
+
+[auto] byte[] start = {
+    PUSH16; word 64;
+    STORE16; px_x;
+
+    PUSH16; word 64;
+    STORE16; px_y;
+
+    PUSH8; 0;
+    STORE8; palette_idx;
+
+    PUSH8; 0x00;
+    STORE8; color;
+
+    PUSH8; 0;
+    STORE8; prev_input;
+
+    PUSH8; 0;
+    STORE8; flash_timer;
+
+    PUSH8; 0;
+    STORE8; flash_state;
+
+    PUSH8; 0;
+    STORE8; moved;
+
+    CALL; read_cursor_pixel;
+
+    JMP; loop;
+}
+
+[auto] byte[] loop = {
+    WAIT;
+
+    // reset moved flag
+    PUSH8; 0;
+    STORE8; moved;
+
+    INP;
+
+    // compute rising edge
+    DUP8;
+    LOAD8; prev_input;
+    NOT8;
+    AND8;
+    STORE8; edge_input;
+
+    // update prev
+    DUP8;
+    STORE8; prev_input;
+
+    // up (bit 0)
+    DUP8;
+    PUSH8; 0x01;
+    AND8;
+    JZ; skip_up;
+    LOAD16; px_y;
+    PUSH16; word 1;
+    SUB16;
+    STORE16; px_y;
+    PUSH8; 1;
+    STORE8; moved;
+}
+
+[auto] byte[] skip_up = {
+    // down (bit 1)
+    DUP8;
+    PUSH8; 0x02;
+    AND8;
+    JZ; skip_down;
+    LOAD16; px_y;
+    PUSH16; word 1;
+    ADD16;
+    STORE16; px_y;
+    PUSH8; 1;
+    STORE8; moved;
+}
+
+[auto] byte[] skip_down = {
+    // left (bit 2)
+    DUP8;
+    PUSH8; 0x04;
+    AND8;
+    JZ; skip_left;
+    LOAD16; px_x;
+    PUSH16; word 1;
+    SUB16;
+    STORE16; px_x;
+    PUSH8; 1;
+    STORE8; moved;
+}
+
+[auto] byte[] skip_left = {
+    // right (bit 3)
+    DUP8;
+    PUSH8; 0x08;
+    AND8;
+    JZ; skip_right;
+    LOAD16; px_x;
+    PUSH16; word 1;
+    ADD16;
+    STORE16; px_x;
+    PUSH8; 1;
+    STORE8; moved;
+}
+
+[auto] byte[] skip_right = {
+    DROP8;
+
+    // A (bit 4)
+    LOAD8; edge_input;
+    PUSH8; 0x10;
+    AND8;
+    JZ; skip_a;
+    LOAD8; palette_idx;
+    PUSH8; 1;
+    ADD8;
+    PUSH8; 5;
+    MOD8;
+    STORE8; palette_idx;
+    CALL; reload_color;
+}
+
+[auto] byte[] skip_a = {
+    // B (bit 5)
+    LOAD8; edge_input;
+    PUSH8; 0x20;
+    AND8;
+    JZ; skip_b;
+    LOAD8; palette_idx;
+    PUSH8; 4;
+    ADD8;
+    PUSH8; 5;
+    MOD8;
+    STORE8; palette_idx;
+    CALL; reload_color;
+}
+
+[auto] byte[] skip_b = {
+    LOAD8; edge_input;
+    PUSH8; 0x80;
+    AND8;
+    JZ; skip_select;
+    CALL; fill_color;
+    CALL; read_cursor_pixel;
+}
+
+[auto] byte[] skip_select = {
+    LOAD8; edge_input;
+    PUSH8; 0x40;
+    AND8;
+    JZ; skip_start;
+    PUSH8; 0xFF;
+    STORE8; color;
+    CALL; fill_color;
+    CALL; reload_color;
+    CALL; read_cursor_pixel;
+}
+
+[auto] byte[] skip_start = {
+    JMP; clamp_and_draw;
+}
+
+[auto] byte[] read_cursor_pixel = {
+    LOAD16; px_y;
+    PUSH8; 7;
+    SHL16;
+    LOAD16; px_x;
+    ADD16;
+    LOAD16; DP;
+    ADD16;
+    POP16;
+    LOAD8;
+    STORE8; cursor_pixel;
+    RET;
+}
+
+[auto] byte[] reload_color = {
+    PUSH16; palette;
+    LOAD8; palette_idx;
+    PUSH8; 0;
+    ADD16;
+    POP16;
+    LOAD8;
+    STORE8; color;
+    RET;
+}
+
+[auto] byte[] fill_color = {
+    PUSH16; word 0;
+    STORE16; fill_counter;
+    JMP; fill_loop;
+}
+
+[auto] byte[] fill_loop = {
+    LOAD16; fill_counter;
+    PUSH16; word 16384;
+    CMP16;
+    JZ; fill_done;
+
+    LOAD8; color;
+
+    LOAD16; DP;
+    LOAD16; fill_counter;
+    ADD16;
+    POP16;
+
+    STORE8;
+
+    LOAD16; fill_counter;
+    PUSH16; word 1;
+    ADD16;
+    STORE16; fill_counter;
+
+    JMP; fill_loop;
+}
+
+[auto] byte[] fill_done = {
+    RET;
+}
+
+[auto] byte[] clamp_and_draw = {
+    LOAD16; px_x;
+    PUSH16; word 127;
+    CMP16;
+    PUSH8; 1;
+    CMP8;
+    JZ; clamp_x_max;
+
+    LOAD16; px_x;
+    PUSH16; word 0;
+    CMP16;
+    PUSH8; 255;
+    CMP8;
+    JZ; clamp_x_min;
+
+    JMP; clamp_x_done;
+}
+
+[auto] byte[] clamp_x_max = {
+    PUSH16; word 127;
+    STORE16; px_x;
+    JMP; clamp_x_done;
+}
+
+[auto] byte[] clamp_x_min = {
+    PUSH16; word 0;
+    STORE16; px_x;
+    JMP; clamp_x_done;
+}
+
+[auto] byte[] clamp_x_done = {
+    LOAD16; px_y;
+    PUSH16; word 127;
+    CMP16;
+    PUSH8; 1;
+    CMP8;
+    JZ; clamp_y_max;
+
+    LOAD16; px_y;
+    PUSH16; word 0;
+    CMP16;
+    PUSH8; 255;
+    CMP8;
+    JZ; clamp_y_min;
+
+    JMP; clamp_y_done;
+}
+
+[auto] byte[] clamp_y_max = {
+    PUSH16; word 127;
+    STORE16; px_y;
+    JMP; clamp_y_done;
+}
+
+[auto] byte[] clamp_y_min = {
+    PUSH16; word 0;
+    STORE16; px_y;
+    JMP; clamp_y_done;
+}
+
+[auto] byte[] clamp_y_done = {
+    LOAD8; moved;
+    PUSH8; 0;
+    CMP8;
+    JZ; no_move;
+
+    LOAD8; cursor_pixel;
+
+    LOAD16; px_y;
+    PUSH8; 7;
+    SHL16;
+    LOAD16; px_x;
+    ADD16;
+    LOAD16; DP;
+    ADD16;
+    POP16;
+
+    STORE8;
+
+    // read new pixel under cursor
+    CALL; read_cursor_pixel;
+
+    // reset flash so cursor snaps visible on move
+    PUSH8; 0;
+    STORE8; flash_state;
+    PUSH8; 0;
+    STORE8; flash_timer;
+
+    JMP; draw_cursor;
+}
+
+[auto] byte[] no_move = {
+    // tick flash timer
+    LOAD8; flash_timer;
+    PUSH8; 1;
+    ADD8;
+    PUSH8; 10;
+    MOD8;
+    STORE8; flash_timer;
+
+    // if timer wrapped to 0, toggle flash_state
+    LOAD8; flash_timer;
+    PUSH8; 0;
+    CMP8;
+    JZ; toggle_flash;
+    JMP; draw_cursor;
+}
+
+[auto] byte[] toggle_flash = {
+    LOAD8; flash_state;
+    PUSH8; 1;
+    XOR8;
+    STORE8; flash_state;
+    JMP; draw_cursor;
+}
+
+[auto] byte[] draw_cursor = {
+    // show pixel
+    LOAD8; flash_state;
+    PUSH8; 1;
+    CMP8;
+    JZ; cursor_show_pixel;
+
+    // show color or contrasted alt
+    LOAD8; color;
+    LOAD8; cursor_pixel;
+    CMP8;
+    JZ; cursor_same_color;
+
+    LOAD8; color;
+    JMP; cursor_write;
+}
+
+[auto] byte[] cursor_same_color = {
+    LOAD8; color;
+    PUSH8; 0xFF;
+    XOR8;
+    JMP; cursor_write;
+}
+
+[auto] byte[] cursor_show_pixel = {
+    LOAD8; cursor_pixel;
+    JMP; cursor_write;
+}
+
+[auto] byte[] cursor_write = {
+    LOAD16; px_y;
+    PUSH8; 7;
+    SHL16;
+    LOAD16; px_x;
+    ADD16;
+    LOAD16; DP;
+    ADD16;
+    POP16;
+    STORE8;
+
+    RFD;
+    JMP; loop;
+}
+
+[auto]	byte[64]	stack
+[auto]	byte[16384]	display	<	"white.bin"
+[auto]	byte[64]	voices

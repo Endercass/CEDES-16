@@ -3,28 +3,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MEM_SIZE      (1 << 16)
-#define DSP_WIDTH (1 << 7)
-#define DSP_HEIGHT (1 << 7)
-#define DSP_FB_SIZE       (DSP_WIDTH * DSP_HEIGHT)
-#define AUD_SAMPLE_RATE   22050
-#define VOICE_COUNT   8
-#define WAVE_SIZE     64
-
-#define REG_PC           0x00 // Program Counter (16-bit)
-#define REG_SP           0x02 // Stack Pointer (16-bit)
-#define REG_DP           0x04 // Display Pointer (16-bit)
-#define REG_AP           0x06 // Audio Pointer (16-bit)
-#define REG_IN           0x08 // Input Register (8-bit)
-#define REG_FL           0x09 // Flags Register (8-bit)
-#define REG_IM           0x0A // Immediate Register (16-bit)
-
-#define FLAG_CF          (1 << 1) // Carry Flag
-#define FLAG_OF          (1 << 3) // Overflow Flag
-#define FLAG_GF          (1 << 4) // Grow Flag (0 = down, 1 = up)
-#define FLAG_HF          (1 << 5) // Halt Flag
-#define FLAG_VF          (1 << 6) // Virtual Immediate Flag
-
 #define IN_UP            (1 << 0)
 #define IN_DOWN          (1 << 1)
 #define IN_LEFT          (1 << 2)

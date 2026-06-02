@@ -19,6 +19,8 @@ Operations
 Display format:
     128x128 pixels, 255 colors (8-bit color, RRRGGGBB)
     Display buffer is 128 * 128 = 16384 bytes (16k) at any memory location
+    Frame rate is on a static 60fps timer, but the display is refreshed manually
+    a frame can be waited for with WAIT
 
 Types:
     8-bit unsigned integers (0-255)
@@ -151,7 +153,7 @@ Operations
     System
     0x90    RFD     none    Refresh display, the contents of memory from the display pointer (DP) to the end of the pixel buffer are rendered to the screen
     0x91    RFA     none    Refresh audio, the contents of memory from the audio pointer (AP) to the end of the audio buffer are played as audio
-    0x92    INP     none    Read input, push the value of the input register (IN) onto the stack
+    0x92    INP     none    Push the value of the input register (IN) onto the stack. INP is always the same during the frame.
     0x93    HLT     none    Halt execution, set the halt flag (HF) in the flags register
     0x94    WAIT    none    Wait for the next frame, this can be used to synchronize with the display's refresh rate.
         

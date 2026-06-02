@@ -5,4 +5,4 @@ else
     CFLAGS="-O2"
 fi
 ./opgen.py
-g++ toyconsole.c -o toyconsole $(sdl2-config --cflags --libs) $CFLAGS
+g++ input.c toyconsole.c -o toyconsole $(sdl2-config --cflags --libs) $CFLAGS

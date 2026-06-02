@@ -12,6 +12,5 @@
 }
 
 [auto]	byte[8]	stack
-[auto]	word	counter
 [auto]	byte[16384]	display	<	"colors.bin"
 [auto]	byte[64]	voices

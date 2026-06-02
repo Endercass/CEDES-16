@@ -5,11 +5,14 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <signal.h>
-#include "ops.h"
 #include <SDL2/SDL.h>
+#include "toyconsole.h"
+#include "ops.h"
+#include "input.h"
 
 volatile sig_atomic_t keep_running = 1;
 bool vm_halted = false;
+bool vm_waiting = false;
 
 SDL_Window* win;
 SDL_Surface* surf;
@@ -21,56 +24,7 @@ void handle_sigint(int sig) {
     keep_running = 0;
 }
 
-struct Registers {
-    // Program counter
-    uint16_t pc;
-    // Stack pointer
-    uint16_t sp;
-    // Display pointer
-    uint16_t dp;
-    // Audio pointer
-    uint16_t ap;
-    // Input register
-    uint8_t in;
-    // Flags register
-    uint8_t fl;
-    // Immediate value register
-    uint16_t im;
-};
 
-union Immediate {
-    uint8_t imm8;
-    uint16_t imm16;
-};
-
-union Memory {
-    uint8_t bytes[MEM_SIZE];
-    struct Registers registers;
-};
-
-struct GfxHandle {
-    SDL_Renderer *renderer;
-    SDL_Texture *texture;
-    SDL_Rect rect;
-    bool dirty;
-};
-
-struct DecodedInstruction {
-    uint8_t opcode;
-
-    bool has_imm8;
-    bool has_imm16;
-
-    bool used_virtual_immediate;
-
-    union {
-        uint8_t imm8;
-        uint16_t imm16;
-    };
-
-    uint16_t pc;
-    uint16_t next_pc;
-};
 
 void print_registers(struct Registers *regs) {
     printf("PC: 0x%04X\n", regs->pc);
@@ -653,8 +607,18 @@ void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHa
         case OP_RFD:
             gfx->dirty = true;
             break;
+        case OP_INP:
+            internal_push8(memory, memory->registers.in);
+            break;
         case OP_HLT:
             vm_halted = true;
+            break;
+        case OP_WAIT:
+            if (vm_waiting) {
+                inst->next_pc = inst->pc;
+            } else {
+                vm_waiting = true;
+            }
             break;
         case OP_NOP:
             break;
@@ -742,7 +706,7 @@ int main(int argc, char *argv[]) {
 
     signal(SIGINT, handle_sigint);
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
         printf("SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
@@ -858,6 +822,12 @@ int main(int argc, char *argv[]) {
                 case SDL_QUIT:
                     keep_running = 0;
                     break;
+                case SDL_CONTROLLERDEVICEADDED:
+                    addController(e.cdevice.which);
+                    break;
+                case SDL_CONTROLLERDEVICEREMOVED:
+                    removeController(e.cdevice.which);
+                    break;
             }
         }
 
@@ -871,12 +841,10 @@ int main(int argc, char *argv[]) {
 
         cycle_accumulator += elapsed * VM_HZ;
 
-        // prevent death spiral after pauses/debugging
         if (cycle_accumulator > VM_HZ * 0.25) {
             cycle_accumulator = VM_HZ * 0.25;
         }
 
-        // execute owed cycles
         while (
             cycle_accumulator >= 1.0 &&
             !vm_halted
@@ -901,9 +869,15 @@ int main(int argc, char *argv[]) {
             render_ui(&memory, &gfx);
 
             last_frame = now_ms;
+
+            if (vm_waiting) {
+                pollInput(&memory);
+                vm_waiting = false;
+                cycle_accumulator = 0.0;
+            }
         }
 
-        if (now_ms - last_stats >= 2000) {
+        if (now_ms - last_stats >= 5000) {
 
             double seconds =
                 (now_ms - last_stats) / 1000.0;
@@ -922,8 +896,8 @@ int main(int argc, char *argv[]) {
             last_stats = now_ms;
         }
 
-        // tiny sleep so we don't spin at 100% CPU
-        SDL_Delay(1);
+        // 60fps is fine
+        SDL_Delay(16);
     }
 
     FILE *mem_dump = fopen("memory_dump.bin", "wb");
