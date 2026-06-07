@@ -1,0 +1,135 @@
+[0x0000] word PC = loop
+[0x0002] word SP = stack
+[0x0004] word DP = display
+[0x0006] word AP = voices
+[0x0008] byte IN
+[0x0009] byte FL = 0x10
+[0x000A] word IM
+[0x000C] byte[4] _rsv
+
+[auto] word sprite_draw_ptr = #(display + 60 + 60 * (128))
+[auto] word bg_ptr = word 0
+
+[auto] byte[] loop = {
+    WAIT;
+    LOAD16; DP;
+    STORE16; bg_ptr;
+}
+
+[auto] byte[] bg_loop = {
+    LOAD16; bg_ptr;
+    PUSH8; 16;
+    PUSH8; 16;
+    BLIT; brick;
+
+    // end of row check
+    LOAD16; bg_ptr;
+    LOAD16; DP;
+    SUB16;
+    SWAP8;
+    PUSH8; 112;
+    CMP8; 
+    
+    JZ; row_end;
+
+    DROP8;
+    LOAD16; bg_ptr;
+    PUSH16; word 16;
+    ADD16;
+    STORE16; bg_ptr;
+    JMP; check_frame_end;
+}
+
+[auto] byte[] row_end = {
+    DROP8;
+    LOAD16; bg_ptr;
+    PUSH16; word 1936;
+    ADD16;
+    STORE16; bg_ptr;
+}
+
+[auto] byte[] check_frame_end = {
+    LOAD16; DP;
+    PUSH16; word 16384;
+    ADD16;              
+    LOAD16; bg_ptr;
+    CMP16;
+    
+    JZ; tile_done;
+    JMP; bg_loop;
+}
+[auto] byte[] tile_done = {
+    INP;
+
+    // up
+    DUP8;
+    PUSH8; 0x01;
+    AND8;
+    JZ; skip_up;
+
+    LOAD16; sprite_draw_ptr;
+    PUSH16; word 128;
+    SUB16;
+    STORE16; sprite_draw_ptr;
+}
+
+[auto] byte[] skip_up = {
+    // down
+    DUP8;
+    PUSH8; 0x02;
+    AND8;
+    JZ; skip_down;
+
+    LOAD16; sprite_draw_ptr;
+    PUSH16; word 128;
+    ADD16;
+    STORE16; sprite_draw_ptr;
+}
+
+[auto] byte[] skip_down = {
+    // left
+    DUP8;
+    PUSH8; 0x04;
+    AND8;
+    JZ; skip_left;
+
+    LOAD16; sprite_draw_ptr;
+    PUSH16; word 1;
+    SUB16;
+    STORE16; sprite_draw_ptr;
+}
+
+[auto] byte[] skip_left = {
+    // right
+    DUP8;
+    PUSH8; 0x08;
+    AND8;
+    JZ; skip_right;
+
+    LOAD16; sprite_draw_ptr;
+    PUSH16; word 1;
+    ADD16;
+    STORE16; sprite_draw_ptr;
+}
+
+[auto] byte[] skip_right = {
+    DROP8;
+    JMP; draw;
+}
+
+[auto] byte[] draw = {
+    LOAD16; sprite_draw_ptr;
+
+    PUSH8; 8;
+    PUSH8; 8;
+    BLIT; noise;
+
+    RFD;
+    JMP; loop;
+}
+
+[auto] byte[1024] stack
+[auto] byte[256] brick < "sprites/brick.bin"
+[auto] byte[64] noise < "noise.bin"
+[auto] byte[16384] display < "white.bin"
+[auto] byte[64] voices

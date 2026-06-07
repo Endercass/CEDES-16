@@ -29,6 +29,9 @@ typedef enum {
     OP_VLOAD8   = 0x32, OP_VLOAD16  = 0x42,
     OP_STORE8   = 0x33, OP_STORE16  = 0x43,
     OP_VSTORE8  = 0x34, OP_VSTORE16 = 0x44,
+    OP_MCPY8    = 0x35, OP_MCPY16   = 0x45,
+    OP_MSET8    = 0x36, OP_MSET16   = 0x46,
+    OP_MSWP8    = 0x37, OP_MSWP16   = 0x47,
     // Arithmetic
     OP_ADD8     = 0x51, OP_ADD16    = 0x61,
     OP_SUB8     = 0x52, OP_SUB16    = 0x62,
@@ -55,7 +58,11 @@ typedef enum {
     OP_JO       = 0xA7, OP_JNO      = 0xA8,
     OP_JS       = 0xA9, OP_JNS      = 0xAA,
     OP_CALL     = 0xAB, OP_RET      = 0xAC,
-    OP_PUSHPC   = 0xAD, OP_PUSHFL   = 0xAE, OP_POPFL = 0xAF
+    OP_PUSHPC   = 0xAD, OP_PUSHFL   = 0xAE, OP_POPFL = 0xAF,
+    // Drawing / Display
+    OP_BLIT     = 0xD1, OP_BLITK    = 0xD2,
+    OP_BLITS    = 0xD3, OP_RECTF    = 0xD4,
+    OP_RECTR    = 0xD5, OP_BLINE    = 0xD6
 } vc_opcode;
 
 typedef struct {

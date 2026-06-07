@@ -30,6 +30,12 @@ OPCODES: dict[str, int] = {
     'STORE16': 0x43,
     'VSTORE8': 0x34,
     'VSTORE16': 0x44,
+    'MCPY8': 0x35,
+    'MCPY16': 0x45,
+    'MSET8': 0x36,
+    'MSET16': 0x46,
+    'MSWP8': 0x37,
+    'MSWP16': 0x47,
     'ADD8': 0x51,
     'ADD16': 0x61,
     'SUB8': 0x52,
@@ -79,6 +85,12 @@ OPCODES: dict[str, int] = {
     'PUSHPC': 0xad,
     'PUSHFL': 0xae,
     'POPFL': 0xaf,
+    'BLIT': 0xd1,
+    'BLITK': 0xd2,
+    'BLITS': 0xd3,
+    'RECTF': 0xd4,
+    'RECTR': 0xd5,
+    'BLINE': 0xd6,
 }
 
 # Reverse map: byte value -> mnemonic

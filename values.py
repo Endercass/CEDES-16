@@ -36,9 +36,20 @@ class Reference:
     def length(self):
         return 2
 
+@dataclass
+# Represent a compile-time expression like #(PALETTE_BASE + 3 * 8).
+# expr_str: the raw string inside #(...) for deferred evaluation.
+# force_word: if True, always resolves to a WordValue; otherwise byte if fits.
+class ConstExpr:
+    expr_str: str
+    force_word: bool = False
+    def length(self):
+        # Conservative 2 bytes until resolved; assembler corrects after eval.
+        return 2
+
 ConstraintLocation = WordValue | Literal["auto"]
 
-Value = ByteValue | WordValue | Reference
+Value = ByteValue | WordValue | Reference | ConstExpr
 
 
 def byte_len(initializer):

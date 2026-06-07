@@ -117,6 +117,12 @@ Operations
     0x43    STORE16 imm16   Pop word value from stack, write it to memory at immediate address (LE)
     0x34    VSTORE8 imm16   Pop word n and n byte values from stack, write the bytes to memory starting at immediate address (LE)
     0x44    VSTORE16 imm16  Pop word n and n word values from stack, write the words to memory starting at immediate address (LE)
+    0x35    MCPY8   none    Pop byte len, word dst, word src. copy len bytes from src to dst.
+    0x45    MCPY16  none    Pop word len, word dst, word src. copy len bytes from src to dst.
+    0x36    MSET8   none    Pop byte val, word len, word dst. fill len bytes starting at dst with val.
+    0x46    MSET16  none    Pop word val, word len, word dst. fill len words starting at dst with val. alignment doesnt matter. essentially "alternates" bytes.
+    0x37    MSWP8   none    Pop byte len, word b, word a. swap len bytes from the two regions
+    0x47    MSWP16  none    Pop word len, word b, word a. swap len bytes from the two regions 
         
     Arithmetic
     0x51    ADD8    none    Pop two bytes from stack, add them, and push the result (modulo 256) back on the stack. Set flags.
@@ -175,6 +181,13 @@ Operations
     0xAE    PUSHFL  none    Push the current flags register (FL) onto the stack.
     0xAF    POPFL   none    Pop a byte from the stack and set the flags register (FL) to that value.
 
+    Drawing / Display
+    0xD1    BLIT    imm16   Pop byte h, byte w, word dst from stack, copy w*h bytes from imm16 to dst. MSB of h is vertical flip, MSB of w is horizontal flip. Works anywhere in memory, but designed for display buffer
+    0xD2    BLITK   imm16   Same as BLIT, but first pop byte key and skip writing pixels matching the key
+    0xD3    BLITS   imm16   Same as BLIT, but first pop fg color, and read monochrome packed sprite (1 bit pixel, not 1 byte)
+    0xD4    RECTF   imm16   Pop byte h, byte w, byte color. Fill the rectangle starting at imm16 with color
+    0xD5    RECTR   imm16   Same as RECTF, but first pop byte thickness, then only draw outline of thickness
+    0xD6    BLINE   none    Pop word b, word a, byte color. draw bresenham line from a to b. designed for display  
 
 Cartridge
     the cartridge is a full ram snapshot (64kb). vital registers like the program counter and stack pointer are sourced from the cartridge, meaning the cartridge fully defines the initial state of the console.

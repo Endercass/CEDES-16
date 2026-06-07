@@ -96,6 +96,11 @@ struct DecodedInstruction fetch(union Memory *memory) {
         case OP_JS:
         case OP_JNS:
         case OP_CALL:
+        case OP_BLIT:
+        case OP_BLITK:
+        case OP_BLITS:
+        case OP_RECTF:
+        case OP_RECTR:
             inst.has_imm16 = true;
 
             if (vf) {
@@ -430,8 +435,27 @@ void print_stack_segment(union Memory *memory, uint16_t base, int count) {
     printf("\n");
 }
 
+void print_stack_2(union Memory  *memory) {
+    printf("Stack top: %02X\n", internal_peek8(memory, 1));
+    uint16_t sp = memory->registers.sp;
+    uint16_t offset = 1;
+    while ((sp - offset + MEM_SIZE) % MEM_SIZE != tmp_dbg_initial_sp) {
+        uint8_t value = internal_peek8(memory, offset);
+        printf("Next: %02X\n", value);
+        if (memory->registers.fl & FLAG_GF) {
+            offset++;
+        } else {
+            offset--;
+        }
+    }
+}
+
 void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHandle *gfx) {
+    uint16_t sp1 = memory->registers.sp;
     switch (inst->opcode) {
+        case 0:
+            print_stack_2(memory);
+            break;
         case OP_PUSH8:
             internal_push8(memory, inst->imm8);
             break;
@@ -529,6 +553,18 @@ void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHa
                 mem_write16(memory, inst->imm16 % MEM_SIZE, value);
             }
             break;
+        case OP_MSET8:
+            {
+                uint8_t val = internal_pop8(memory);
+                uint16_t len = internal_pop16(memory);
+                uint16_t dst = internal_pop16(memory);
+
+                for (uint16_t offset = 0; offset < len; offset++) {
+                    memory->bytes[(dst + offset) % MEM_SIZE] = val;
+                }
+
+            }
+            break;
         case OP_ADD8:
             {
                 uint8_t a = internal_pop8(memory);
@@ -572,6 +608,32 @@ void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHa
                 internal_push16(memory, result & 0xFFFF);
                 memory->registers.fl &= ~(FLAG_CF);
                 if (a < b)                 memory->registers.fl |= FLAG_CF;
+            }
+            break;
+        case OP_MUL8:
+            {
+                uint8_t b = internal_pop8(memory);
+                uint8_t a = internal_pop8(memory);
+                uint16_t result = (uint16_t)a * (uint16_t)b;
+                internal_push8(memory, result & 0xFF);
+                
+                memory->registers.fl &= ~(FLAG_CF);
+                if (result > 0xFF) {
+                    memory->registers.fl |= FLAG_CF;
+                }
+            }
+            break;
+        case OP_MUL16:
+            {
+                uint16_t b = internal_pop16(memory);
+                uint16_t a = internal_pop16(memory);
+                uint32_t result = (uint32_t)a * (uint32_t)b;
+                internal_push16(memory, result & 0xFFFF);
+                
+                memory->registers.fl &= ~(FLAG_CF);
+                if (result > 0xFFFF) {
+                    memory->registers.fl |= FLAG_CF;
+                }
             }
             break;
         case OP_DIV8:
@@ -750,6 +812,27 @@ void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHa
         case OP_POPFL:
             memory->registers.fl = internal_pop8(memory);
             break;
+        case OP_BLIT:
+            {
+                uint8_t h = internal_pop8(memory);
+                bool v_flip = h & (1 << 7);
+                h &= 0x7F;
+                uint8_t w = internal_pop8(memory);
+                bool h_flip = w & (1 << 7);
+                w &= 0x7F;
+                uint16_t dst = internal_pop16(memory);
+                uint16_t src = inst->imm16;
+
+                for (uint8_t row = 0; row < h; row++) {
+                    uint8_t src_row = v_flip ? (h - 1 - row) : row;
+                    for (uint8_t col = 0; col < w; col++) {
+                        uint8_t src_col = h_flip ? (w - 1 - col) : col;
+                        uint8_t pixel = memory->bytes[(src + src_row * w + src_col) % MEM_SIZE];
+                        memory->bytes[(dst + row * DSP_WIDTH + col) % MEM_SIZE] = pixel;
+                    }
+                }
+            }
+            break;
         default:
             printf("Unknown opcode: 0x%02X at address 0x%04X\n", inst->opcode, inst->pc);
             printf("Due to incomplete implementation, we halt on unknown instructions so i can chisel out op by op.");
@@ -761,6 +844,8 @@ void execute(union Memory *memory, struct DecodedInstruction *inst, struct GfxHa
         // clear VF after use
         memory->registers.fl &= ~FLAG_VF;
     }
+
+    //printf("PC: %04X \u0394SP = %04X\n", memory->registers.pc,  (memory->registers.sp - sp1 + MEM_SIZE) % MEM_SIZE);
 }
 
 
